@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIT Admin – Dashboard</title>
+
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+
+<body>
+  <div class="layout">
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="brand">SIT Admin</div>
+      <a href="dashboard.html" class="active"><span>Dashboard</span></a>
+      <a href="scans.html"><span>Scans</span></a>
+      <a href="reports.html"><span>Reports</span></a>
+      <div class="spacer"></div>
+      <a href="#" class="logout-btn" onclick="logout()"><span>Logout</span></a>
+    </nav>
+
+    <!-- Main -->
+    <div class="main">
+      <h1>Dashboard</h1>
+
+      <!-- Live status -->
+      <div id="liveStatus" style="font-size:12px; opacity:0.7; margin:10px 0;">
+        Last updated: -
+      </div>
+
+      <!-- Stat cards -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="label">Total Scans</div>
+          <div class="value" id="totalScans">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Total Reports</div>
+          <div class="value" id="totalReports">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Scam Detected</div>
+          <div class="value" id="scamCount">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Suspicious</div>
+          <div class="value" id="suspiciousCount">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="label">Safe</div>
+          <div class="value" id="safeCount">--</div>
+        </div>
+      </div>
+
+      <!-- Latest scans -->
+      <div class="card">
+        <h2>Latest Scans</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Link</th>
+              <th>Verdict</th>
+              <th>Score</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="latestScansBody">
+            <tr><td colspan="5" class="text-muted text-center">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/api.js"></script>
+  <script>
+    requireAuth();
+
+    let lastTopId = null;
+
+    function setStatus(msg) {
+      const el = document.getElementById("liveStatus");
+      if (el) el.textContent = msg;
+    }
+
+    function renderDashboard(data) {
+      if (!data) return;
+
+      document.getElementById("totalScans").textContent = data.total_scans ?? "--";
+      document.getElementById("totalReports").textContent = data.total_reports ?? "--";
+      document.getElementById("scamCount").textContent = data.breakdown?.scam ?? "--";
+      document.getElementById("suspiciousCount").textContent = data.breakdown?.suspicious ?? "--";
+      document.getElementById("safeCount").textContent = data.breakdown?.safe ?? "--";
+
+      const tbody = document.getElementById("latestScansBody");
+      const scans = data.latest_scans || [];
+
+      if (scans.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">No scans yet.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = scans.map(s => `
+        <tr data-id="${s.id}">
+          <td>${s.id}</td>
+          <td class="link-cell" title="${s.link}">${s.link}</td>
+          <td><span class="badge ${s.verdict}">${s.verdict}</span></td>
+          <td>${s.score}</td>
+          <td>${s.created_at || "—"}</td>
+        </tr>
+      `).join("");
+
+      // highlight new top row
+      const topId = scans[0]?.id;
+      if (lastTopId !== null && topId && topId !== lastTopId) {
+        const tr = tbody.querySelector(`tr[data-id="${topId}"]`);
+        if (tr) {
+          tr.classList.add("row-new");
+          setTimeout(() => tr.classList.remove("row-new"), 2500);
+        }
+      }
+      lastTopId = topId;
+    }
+
+    async function refresh() {
+      try {
+        setStatus("Updating...");
+        const data = await loadDashboardStats();
+        renderDashboard(data);
+        setStatus("Last updated: " + new Date().toLocaleString());
+      } catch (err) {
+        console.error("Dashboard load error:", err);
+        setStatus("Update failed (check backend/token).");
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

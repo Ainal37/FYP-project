@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIT Admin – Login</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <div class="login-wrapper">
+    <div class="login-box">
+      <h1>SIT Admin</h1>
+      <p class="subtitle">Scammer Identification &amp; Validation Tool</p>
+
+      <div id="errorMsg" class="error-msg"></div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" placeholder="admin@example.com" required />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="Enter password" required />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px;">
+          ADMIN LOGIN
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <script src="assets/js/api.js"></script>
+  <script>
+    // If already logged in, go straight to dashboard
+    if (getToken()) {
+      window.location.href = "dashboard.html";
+    }
+
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const errorDiv = document.getElementById("errorMsg");
+      errorDiv.style.display = "none";
+
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+
+      try {
+        await login(email, password);
+        window.location.href = "dashboard.html";
+      } catch (err) {
+        errorDiv.textContent = err.message;
+        errorDiv.style.display = "block";
+      }
+    });
+  </script>
+</body>
+</html>
