@@ -2,72 +2,80 @@
 
 const BASE_URL = "http://127.0.0.1:8001";
 
-// ---------- Token helpers ----------
-function getToken() {
-  return localStorage.getItem("sit_token");
-}
-function setToken(token) {
-  localStorage.setItem("sit_token", token);
-}
-function clearToken() {
-  localStorage.removeItem("sit_token");
-}
+// ── Token helpers ──
+function getToken()  { return localStorage.getItem("sit_token"); }
+function setToken(t) { localStorage.setItem("sit_token", t); }
+function clearToken() { localStorage.removeItem("sit_token"); }
 
-// ---------- Auth guard (call on every protected page) ----------
+// ── Auth guard ──
 function requireAuth() {
-  if (!getToken()) {
-    window.location.href = "login.html";
-  }
+  if (!getToken()) window.location.href = "login.html";
 }
 
-// ---------- Logout ----------
+// ── Logout ──
 function logout() {
   clearToken();
   window.location.href = "login.html";
 }
 
-// ---------- Core fetch wrapper (adds Bearer header) ----------
+// ── Offline banner ──
+function showOfflineBanner(show) {
+  let b = document.getElementById("offlineBanner");
+  if (!b && show) {
+    b = document.createElement("div");
+    b.id = "offlineBanner";
+    b.className = "offline-banner";
+    b.textContent = "Backend offline \u2013 retrying\u2026";
+    document.body.prepend(b);
+  }
+  if (b) b.style.display = show ? "block" : "none";
+}
+
+// ── Core fetch wrapper (adds Bearer header) ──
 async function authFetch(path, options = {}) {
   const token = getToken();
   const headers = {
     "Content-Type": "application/json",
     ...(options.headers || {}),
   };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (token) headers["Authorization"] = "Bearer " + token;
+
+  try {
+    const res = await fetch(BASE_URL + path, { ...options, headers });
+    showOfflineBanner(false);
+    if (res.status === 401) {
+      clearToken();
+      window.location.href = "login.html";
+      return;
+    }
+    return res;
+  } catch (err) {
+    showOfflineBanner(true);
+    throw err;
   }
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
-  if (res.status === 401) {
-    clearToken();
-    window.location.href = "login.html";
-    return;
-  }
-  return res;
 }
 
-// ---------- Auth endpoints ----------
+// ── Auth ──
 async function login(email, password) {
-  const res = await fetch(`${BASE_URL}/auth/login`, {
+  const res = await fetch(BASE_URL + "/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
   const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.detail || "Login failed");
-  }
+  if (!res.ok) throw new Error(data.detail || "Login failed");
   setToken(data.access_token);
   return data;
 }
 
-// ---------- Dashboard ----------
+// ── Dashboard ──
 async function loadDashboardStats() {
   const res = await authFetch("/dashboard/stats");
   if (!res) return null;
   return res.json();
 }
 
-// ---------- Scans ----------
+// ── Scans ──
 async function createScan(payload) {
   const res = await authFetch("/scans", {
     method: "POST",
@@ -78,12 +86,12 @@ async function createScan(payload) {
 }
 
 async function listScans(limit = 200) {
-  const res = await authFetch(`/scans?limit=${limit}`);
+  const res = await authFetch("/scans?limit=" + limit);
   if (!res) return [];
   return res.json();
 }
 
-// ---------- Reports ----------
+// ── Reports ──
 async function createReport(payload) {
   const res = await authFetch("/reports", {
     method: "POST",
@@ -94,7 +102,7 @@ async function createReport(payload) {
 }
 
 async function listReports(limit = 200) {
-  const res = await authFetch(`/reports?limit=${limit}`);
+  const res = await authFetch("/reports?limit=" + limit);
   if (!res) return [];
   return res.json();
 }

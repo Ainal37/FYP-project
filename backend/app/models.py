@@ -1,3 +1,5 @@
+"""SQLAlchemy ORM models."""
+
 from sqlalchemy import Column, Integer, String, Text, BigInteger, Enum, TIMESTAMP
 from sqlalchemy.sql import func
 from .database import Base
@@ -30,11 +32,14 @@ class Report(Base):
     __tablename__ = "reports"
 
     id = Column(Integer, primary_key=True, index=True)
-    telegram_user_id = Column(BigInteger, nullable=False)
+    telegram_user_id = Column(BigInteger, nullable=True)
     telegram_username = Column(String(80), nullable=True)
-    message = Column(Text, nullable=False)
     link = Column(Text, nullable=True)
+    report_type = Column(String(50), nullable=False, default="scam")
+    description = Column(Text, nullable=False)
     status = Column(
-        Enum("pending", "reviewed", "blocked"), nullable=False, default="pending"
+        Enum("new", "investigating", "resolved"),
+        nullable=False,
+        default="new",
     )
     created_at = Column(TIMESTAMP, server_default=func.now())

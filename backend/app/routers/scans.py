@@ -1,24 +1,24 @@
+"""Scan endpoints: create + list."""
+
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import Scan
 from ..detector import scan_link
-from ..auth import get_current_admin
+from ..security import get_current_admin
+from ..schemas import ScanRequest, ScanResponse
 
 router = APIRouter(prefix="/scans", tags=["scans"])
 
 
-class ScanIn(BaseModel):
-    telegram_user_id: int | None = None
-    telegram_username: str | None = None
-    link: str
-
-
-@router.post("")
-def create_scan(payload: ScanIn, db: Session = Depends(get_db)):
-    """Public endpoint – used by the Telegram bot."""
+@router.post("", response_model=ScanResponse)
+def create_scan(
+    payload: ScanRequest,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
+):
+    """Protected – create a scan (used by bot & admin dashboard)."""
     verdict, score, reason = scan_link(payload.link)
 
     s = Scan(
@@ -32,7 +32,16 @@ def create_scan(payload: ScanIn, db: Session = Depends(get_db)):
     db.add(s)
     db.commit()
     db.refresh(s)
-    return {"id": s.id, "verdict": verdict, "score": score, "reason": reason}
+    return ScanResponse(
+        id=s.id,
+        link=s.link,
+        verdict=s.verdict,
+        score=s.score,
+        reason=s.reason or "",
+        telegram_user_id=s.telegram_user_id,
+        telegram_username=s.telegram_username,
+        created_at=str(s.created_at) if s.created_at else None,
+    )
 
 
 @router.get("")
@@ -42,7 +51,7 @@ def list_scans(
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    """Protected – list all scans for admin dashboard."""
+    """Protected – list scans for admin dashboard."""
     rows = db.query(Scan).order_by(Scan.id.desc()).offset(skip).limit(limit).all()
     return [
         {

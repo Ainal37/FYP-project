@@ -1,26 +1,25 @@
-# ===== SIT-System .gitignore =====
-
-# Python
+# ── Python ──
 __pycache__/
 *.pyc
 *.pyo
 
-# Virtual environment
+# ── Virtual environment ──
 backend/.venv/
 
-# Environment files (contain secrets / tokens)
+# ── Environment / secrets ──
 backend/.env
 backend/bot/.env
 
-# Bot lock file
+# ── Runtime ──
 backend/bot/.bot.lock
 
-# IDE
+# ── IDE / editor ──
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
+# ── OS files ──
 Thumbs.db
 .DS_Store
+Desktop.ini

@@ -11,7 +11,6 @@
     <div class="login-box">
       <h1>SIT Admin</h1>
       <p class="subtitle">Scammer Identification &amp; Validation Tool</p>
-
       <div id="errorMsg" class="error-msg"></div>
 
       <form id="loginForm">
@@ -31,28 +30,6 @@
   </div>
 
   <script src="assets/js/api.js"></script>
-  <script>
-    // If already logged in, go straight to dashboard
-    if (getToken()) {
-      window.location.href = "dashboard.html";
-    }
-
-    document.getElementById("loginForm").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const errorDiv = document.getElementById("errorMsg");
-      errorDiv.style.display = "none";
-
-      const email = document.getElementById("email").value.trim();
-      const password = document.getElementById("password").value;
-
-      try {
-        await login(email, password);
-        window.location.href = "dashboard.html";
-      } catch (err) {
-        errorDiv.textContent = err.message;
-        errorDiv.style.display = "block";
-      }
-    });
-  </script>
+  <script src="assets/js/login.js"></script>
 </body>
 </html>
