@@ -1,6 +1,8 @@
 """Scan endpoints: create + list + detail + analyze-message."""
 
 import json
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 
@@ -57,10 +59,20 @@ def create_scan(
 def list_scans(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    search: Optional[str] = Query(None, description="Search by link text"),
+    verdict: Optional[str] = Query(None, description="Filter by verdict: safe/suspicious/scam"),
+    threat_level: Optional[str] = Query(None, description="Filter by threat level: LOW/MED/HIGH"),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
-    rows = db.query(Scan).order_by(Scan.id.desc()).offset(skip).limit(limit).all()
+    q = db.query(Scan)
+    if search:
+        q = q.filter(Scan.link.ilike(f"%{search}%"))
+    if verdict and verdict in ("safe", "suspicious", "scam"):
+        q = q.filter(Scan.verdict == verdict)
+    if threat_level and threat_level in ("LOW", "MED", "HIGH"):
+        q = q.filter(Scan.threat_level == threat_level)
+    rows = q.order_by(Scan.id.desc()).offset(skip).limit(limit).all()
     return [_scan_to_dict(s) for s in rows]
 
 
@@ -125,5 +137,6 @@ def _scan_to_dict(s: Scan) -> dict:
         "reason": s.reason,
         "breakdown": bd,
         "intel_summary": intel,
+        "message": s.message,
         "created_at": str(s.created_at) if s.created_at else None,
     }

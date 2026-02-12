@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIT Admin – Users</title>
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <!-- Top Bar -->
+  <div class="topbar">
+    <button class="topbar-close" title="Close" onclick="window.close()">&#10005;</button>
+    <div class="topbar-search">
+      <span class="search-icon">&#128269;</span>
+      <input type="text" placeholder="Search... (Ctrl+K)" id="globalSearch" onfocus="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true}))" readonly />
+    </div>
+    <div class="topbar-right">
+      <button class="notif-bell" id="notifBell" onclick="toggleNotifDropdown()">
+        &#128276;<span class="notif-badge" id="notifCount" style="display:none">0</span>
+      </button>
+      <div class="user-pill" id="userPill">
+        <div class="user-avatar" id="userAvatar">A</div>
+        <div class="user-pill-info">
+          <div class="name" id="userName">Admin</div>
+          <div class="email" id="userEmail">admin@example.com</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Dropdown -->
+  <div class="notif-dropdown" id="notifDropdown">
+    <div class="notif-dropdown-header">
+      <h3>Notifications</h3>
+      <button class="btn btn-sm" onclick="markAllNotifRead()">Mark all read</button>
+    </div>
+    <div class="notif-dropdown-body" id="notifList"></div>
+    <div class="notif-dropdown-footer">
+      <button class="btn btn-sm" onclick="toggleNotifDropdown()">Close</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="brand">ADMIN PANEL</div>
+      <div class="brand-sub">Enterprise Dashboard</div>
+      <a href="dashboard.html"><span class="nav-icon">&#9632;</span><span>Dashboard</span></a>
+      <a href="scans.html"><span class="nav-icon">&#128269;</span><span>Scans</span></a>
+      <a href="users.html" class="active"><span class="nav-icon">&#128101;</span><span>Users</span></a>
+      <a href="reports.html"><span class="nav-icon">&#128196;</span><span>Reports</span></a>
+      <a href="analytics.html"><span class="nav-icon">&#128200;</span><span>Analytics</span></a>
+      <a href="settings.html"><span class="nav-icon">&#9881;</span><span>Settings</span></a>
+      <div class="spacer"></div>
+      <a href="#" class="logout-btn" onclick="logout()"><span class="nav-icon">&#10140;</span><span>Logout</span></a>
+    </nav>
+
+    <div class="main">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+        <h1>Users</h1>
+        <button class="btn btn-primary btn-sm" onclick="openModal('addUserModalPage')">+ Add User</button>
+      </div>
+      <div id="liveStatus" class="live-status">Loading users...</div>
+
+      <div class="card">
+        <div class="toolbar">
+          <input type="text" id="searchInput" placeholder="Search by name or email..." />
+          <select id="roleFilter">
+            <option value="">All Roles</option>
+            <option value="admin">Admin</option>
+            <option value="editor">Editor</option>
+            <option value="viewer">Viewer</option>
+          </select>
+          <select id="statusFilter">
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="suspended">Suspended</option>
+          </select>
+        </div>
+        <table>
+          <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+          <tbody id="usersBody"><tr><td colspan="7"><div class="skeleton skeleton-text"></div></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add User Modal -->
+  <div class="modal-overlay" id="addUserModalPage" style="display:none" onclick="if(event.target===this)closeModal('addUserModalPage')">
+    <div class="modal">
+      <div class="modal-header"><h2>Add New User</h2><button class="modal-close" onclick="closeModal('addUserModalPage')">&#10005;</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label>Full Name</label><input type="text" id="aup_name" placeholder="John Doe" /></div>
+        <div class="form-group"><label>Email</label><input type="email" id="aup_email" placeholder="john@example.com" /></div>
+        <div class="form-group"><label>Role</label><select id="aup_role"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="admin">Admin</option></select></div>
+        <div class="form-group"><label>Status</label><select id="aup_status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      </div>
+      <div class="modal-footer"><button class="btn" onclick="closeModal('addUserModalPage')">Cancel</button><button class="btn btn-primary" onclick="submitAddUserPage()">Create User</button></div>
+    </div>
+  </div>
+
+  <script src="assets/js/api.js"></script>
+  <script src="assets/js/users.js"></script>
+</body>
+</html>

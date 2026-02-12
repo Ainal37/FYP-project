@@ -54,31 +54,80 @@ def _alive(pid):
 
 # ── Backend auth ──
 _token = None; _token_ts = 0
+_API_TIMEOUT = 20  # seconds (increased from 10 so slow first requests don't fail)
+
+def _wait_for_backend(max_attempts=30):
+    """Block until backend /health responds. Uses exponential backoff."""
+    delays = [1, 1, 2, 2, 3, 3, 5, 5, 10]  # then 10s forever
+    for attempt in range(1, max_attempts + 1):
+        delay = delays[min(attempt - 1, len(delays) - 1)]
+        try:
+            r = requests.get(f"{BACKEND_URL}/health", timeout=3)
+            if r.status_code == 200:
+                data = r.json()
+                print(f"[Bot] Backend healthy (db={data.get('db')}, v={data.get('version')})")
+                return True
+        except Exception:
+            pass
+        print(f"[Bot] Waiting for backend... attempt {attempt}, retry in {delay}s")
+        time.sleep(delay)
+    print("[Bot] Backend never became healthy after max attempts")
+    return False
+
 
 def _get_token():
+    """Authenticate with backend. Retries with backoff on failure."""
     global _token, _token_ts
-    if _token and time.time() - _token_ts < 21600: return _token
-    try:
-        r = requests.post(f"{BACKEND_URL}/auth/login",
-            json={"email": BOT_ADMIN_EMAIL, "password": BOT_ADMIN_PASSWORD}, timeout=10)
-        r.raise_for_status(); _token = r.json()["access_token"]; _token_ts = time.time()
-        print("[Bot] Auth OK"); return _token
-    except Exception as e: print(f"[Bot] Auth fail: {e}"); return None
+    if _token and time.time() - _token_ts < 21600:
+        return _token
+    delays = [1, 2, 3, 5, 10]
+    for attempt in range(1, 11):
+        delay = delays[min(attempt - 1, len(delays) - 1)]
+        try:
+            r = requests.post(
+                f"{BACKEND_URL}/auth/login",
+                json={"email": BOT_ADMIN_EMAIL, "password": BOT_ADMIN_PASSWORD},
+                timeout=_API_TIMEOUT,
+            )
+            r.raise_for_status()
+            _token = r.json()["access_token"]
+            _token_ts = time.time()
+            print("[Bot] Auth success")
+            return _token
+        except Exception as e:
+            print(f"[Bot] Auth failed (attempt {attempt}): {e}")
+            if attempt < 10:
+                print(f"[Bot] Auth retry in {delay}s...")
+                time.sleep(delay)
+    print("[Bot] Auth: all retries exhausted")
+    return None
+
 
 def api_post(path, payload):
+    """POST to backend API with automatic token refresh on 401."""
     global _token, _token_ts
     t = _get_token()
-    if not t: return None
+    if not t:
+        return None
     try:
-        r = requests.post(f"{BACKEND_URL}{path}", json=payload,
-            headers={"Authorization": f"Bearer {t}"}, timeout=10)
+        r = requests.post(
+            f"{BACKEND_URL}{path}", json=payload,
+            headers={"Authorization": f"Bearer {t}"}, timeout=_API_TIMEOUT,
+        )
         if r.status_code == 401:
-            _token = None; _token_ts = 0; t = _get_token()
-            if not t: return None
-            r = requests.post(f"{BACKEND_URL}{path}", json=payload,
-                headers={"Authorization": f"Bearer {t}"}, timeout=10)
-        r.raise_for_status(); return r.json()
-    except Exception as e: print(f"[API] {path} -> {e}"); return None
+            _token = None; _token_ts = 0
+            t = _get_token()
+            if not t:
+                return None
+            r = requests.post(
+                f"{BACKEND_URL}{path}", json=payload,
+                headers={"Authorization": f"Bearer {t}"}, timeout=_API_TIMEOUT,
+            )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        print(f"[API] {path} -> {e}")
+        return None
 
 # ── Bot ──
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN, parse_mode="HTML")
@@ -88,11 +137,30 @@ EMOJI = {"safe": "\u2705", "suspicious": "\u26a0\ufe0f", "scam": "\U0001f6a8"}
 def fmt(d):
     e = EMOJI.get(d.get("verdict",""), "\u2753")
     tl = d.get("threat_level", "")
-    return (f"{e} <b>Verdict: {d.get('verdict','?').upper()}</b>\n"
+    score = d.get("score", 0)
+    verdict = d.get("verdict", "?").upper()
+    reason = d.get("reason", "N/A")[:300]
+    ts = d.get("created_at", "")
+
+    if tl == "HIGH":
+        bar = "\u2588" * min(score // 5, 20)
+        return (
+            f"\U0001f6a8\U0001f6a8\U0001f6a8 <b>HIGH THREAT DETECTED</b> \U0001f6a8\U0001f6a8\U0001f6a8\n"
+            f"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+            f"\u26a0\ufe0f <b>Verdict:</b> {verdict}\n"
+            f"\U0001f4ca <b>Score:</b> {score}/100  [{bar}]\n"
+            f"\U0001f534 <b>Threat Level:</b> {tl}\n"
+            f"\U0001f50d <b>Reasons:</b> {reason}\n"
+            f"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+            f"\u26d4 <b>DO NOT visit this URL.</b>\n"
+            f"<i>{ts}</i>"
+        )
+
+    return (f"{e} <b>Verdict: {verdict}</b>\n"
             f"Threat Level: {tl}\n"
-            f"Score: {d.get('score',0)}/100\n"
-            f"Reasons: {d.get('reason','N/A')[:300]}\n"
-            f"<i>{d.get('created_at','')}</i>")
+            f"Score: {score}/100\n"
+            f"Reasons: {reason}\n"
+            f"<i>{ts}</i>")
 
 @bot.message_handler(commands=["start"])
 def cmd_start(m):
@@ -148,9 +216,20 @@ if __name__ == "__main__":
     _acquire_lock(); atexit.register(_release_lock)
     print("[Bot] Removing webhook..."); bot.remove_webhook()
     print(f"[Bot] Backend: {BACKEND_URL}  PID: {os.getpid()}")
+
+    # Wait for backend to be healthy before trying to authenticate
+    _wait_for_backend(max_attempts=30)
+
     t = _get_token()
-    print(f"[Bot] Auth: {'OK' if t else 'FAILED'}")
+    if not t:
+        print("[Bot] WARNING: Auth failed, but starting polling anyway (will retry on each request)")
+    else:
+        print("[Bot] Auth: OK")
+
     print("[Bot] Polling...")
-    try: bot.infinity_polling(timeout=30, long_polling_timeout=25)
-    except KeyboardInterrupt: print("\n[Bot] Stopped.")
-    finally: _release_lock()
+    try:
+        bot.infinity_polling(timeout=30, long_polling_timeout=25)
+    except KeyboardInterrupt:
+        print("\n[Bot] Stopped.")
+    finally:
+        _release_lock()

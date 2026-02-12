@@ -1,9 +1,14 @@
 """SQLAlchemy ORM models."""
 
-from sqlalchemy import Column, Integer, String, Text, BigInteger, Enum, TIMESTAMP
+from sqlalchemy import (
+    Column, Integer, String, Text, BigInteger, Boolean,
+    Enum, TIMESTAMP, ForeignKey,
+)
 from sqlalchemy.sql import func
 from .database import Base
 
+
+# ── Existing models (unchanged) ─────────────────────────────
 
 class AdminUser(Base):
     __tablename__ = "admin_users"
@@ -22,11 +27,11 @@ class Scan(Base):
     link = Column(Text, nullable=False)
     verdict = Column(Enum("safe", "suspicious", "scam"), nullable=False)
     score = Column(Integer, nullable=False)
-    threat_level = Column(String(10), nullable=True)           # LOW / MED / HIGH
+    threat_level = Column(String(10), nullable=True)
     reason = Column(Text, nullable=True)
-    breakdown = Column(Text, nullable=True)                    # JSON
-    intel_summary = Column(Text, nullable=True)                # JSON
-    message = Column(Text, nullable=True)                      # optional message text
+    breakdown = Column(Text, nullable=True)
+    intel_summary = Column(Text, nullable=True)
+    message = Column(Text, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
@@ -56,4 +61,66 @@ class AuditLog(Base):
     target = Column(Text, nullable=True)
     ip_address = Column(String(45), nullable=True)
     detail = Column(Text, nullable=True)
+    user_agent = Column(String(500), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+# ── Enterprise models (new) ─────────────────────────────────
+
+class User(Base):
+    """Managed users for the enterprise admin panel."""
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    full_name = Column(String(255), nullable=False)
+    role = Column(Enum("admin", "editor", "viewer"), nullable=False, default="viewer")
+    status = Column(Enum("active", "inactive", "suspended"), nullable=False, default="active")
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    last_login_at = Column(TIMESTAMP, nullable=True)
+
+
+class UserSecurity(Base):
+    __tablename__ = "user_security"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("admin_users.id"), nullable=False, unique=True)
+    totp_enabled = Column(Boolean, nullable=False, default=False)
+    totp_secret = Column(String(255), nullable=True)
+    mfa_required = Column(Boolean, nullable=False, default=False)
+    session_timeout_minutes = Column(Integer, nullable=False, default=480)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, index=True)
+    recipient_scope = Column(
+        Enum("all", "admin", "editor", "viewer", "selected"),
+        nullable=False, default="all",
+    )
+    recipient_user_id = Column(Integer, nullable=True)
+    type = Column(Enum("info", "warning", "alert", "success"), nullable=False, default="info")
+    title = Column(String(255), nullable=False)
+    body = Column(Text, nullable=True)
+    is_read = Column(Boolean, nullable=False, default=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class Backup(Base):
+    __tablename__ = "backups"
+    id = Column(Integer, primary_key=True, index=True)
+    created_by_email = Column(String(255), nullable=True)
+    scope_json = Column(Text, nullable=True)
+    status = Column(
+        Enum("queued", "running", "done", "failed"),
+        nullable=False, default="queued",
+    )
+    file_path = Column(String(500), nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    finished_at = Column(TIMESTAMP, nullable=True)
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())

@@ -1,72 +1,219 @@
 # ============================================================
-#  SIT-System – One-Click Launcher (Windows PowerShell)
+#  SIT-System v2.0 - One-Click Launcher
+#  Compatible: Windows PowerShell 5.1+
+#  SPACE-SAFE: uses -EncodedCommand (Base64 Unicode) so paths
+#              with spaces never break quoting.
+#  Starts: Backend (8001) | Frontend (5500) | Telegram Bot
 # ============================================================
+
 $ErrorActionPreference = "Stop"
 
-$ROOT = Split-Path -Parent $MyInvocation.MyCommand.Definition
+# -- Resolve project root (works even when invoked via -File) --
+$ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location -LiteralPath $ROOT
 
-$BACKEND  = Join-Path $ROOT "backend"
-$FRONTEND = Join-Path $ROOT "frontend\admin"
-$VENV_PY  = Join-Path $BACKEND ".venv\Scripts\python.exe"
-$BOT_DIR  = Join-Path $BACKEND "bot"
-$BOT_LOCK = Join-Path $BOT_DIR ".bot.lock"
+$BACKEND_DIR  = Join-Path $ROOT "backend"
+$FRONTEND_DIR = Join-Path $ROOT "frontend\admin"
+$BOT_DIR      = Join-Path $BACKEND_DIR "bot"
+$VENV_PY      = Join-Path $BACKEND_DIR ".venv\Scripts\python.exe"
+$BOT_LOCK     = Join-Path $BOT_DIR ".bot.lock"
 
+# ── Helper: open a NEW PowerShell window via -EncodedCommand ──
+function Start-ServiceWindow {
+    param(
+        [string]$Label,
+        [string]$WorkDir,
+        [string]$Cmd
+    )
+    $full  = "Set-Location -LiteralPath '" + $WorkDir + "'; " + $Cmd
+    $bytes = [System.Text.Encoding]::Unicode.GetBytes($full)
+    $enc   = [Convert]::ToBase64String($bytes)
+    Start-Process -FilePath "powershell.exe" -ArgumentList "-NoExit","-EncodedCommand",$enc
+    Write-Host ("  -> " + $Label) -ForegroundColor DarkGray
+}
+
+# ── Helper: TCP port probe with 2-second timeout ──
+function Test-Port {
+    param(
+        [string]$HostName,
+        [int]$Port
+    )
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $ar  = $tcp.BeginConnect($HostName, $Port, $null, $null)
+        $ok  = $ar.AsyncWaitHandle.WaitOne(2000, $false)
+        if ($ok) { $tcp.EndConnect($ar) }
+        $tcp.Close()
+        return $ok
+    } catch {
+        return $false
+    }
+}
+
+# ── Helper: detect port conflict, show PID + process name, auto-kill project procs ──
+function Test-PortConflict {
+    param([int]$Port)
+    $found = $false
+    try {
+        $lines = netstat -ano 2>$null | Select-String (":" + $Port + " ")
+        foreach ($line in $lines) {
+            $parts = $line.ToString().Trim() -split '\s+'
+            if ($parts.Count -ge 5 -and $parts[1] -match (":$Port$")) {
+                $pid = [int]$parts[4]
+                if ($pid -eq 0) { continue }
+                $procName = "unknown"
+                try {
+                    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+                    if ($proc) { $procName = $proc.ProcessName }
+                } catch {}
+
+                $found = $true
+                Write-Host ("  WARNING: Port " + $Port + " in use by PID " + $pid + " (" + $procName + ")") -ForegroundColor Red
+
+                # Auto-kill if it is a python process (likely our own from a previous run)
+                if ($procName -eq "python" -or $procName -eq "python3") {
+                    Write-Host ("  Auto-killing PID " + $pid + " (python process from previous run)") -ForegroundColor Yellow
+                    try { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue } catch {}
+                    Start-Sleep -Milliseconds 500
+                } else {
+                    Write-Host ("  Fix: taskkill /PID " + $pid + " /F") -ForegroundColor Yellow
+                }
+            }
+        }
+    } catch {}
+    return $found
+}
+
+# ── Helper: wait for /health endpoint to respond (up to N seconds) ──
+function Wait-ForHealth {
+    param([int]$MaxSeconds = 20)
+    Write-Host ("  Waiting for backend /health (up to " + $MaxSeconds + "s)...") -ForegroundColor Gray
+    for ($i = 0; $i -lt $MaxSeconds; $i++) {
+        Start-Sleep -Seconds 1
+        try {
+            $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8001/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+            if ($resp.StatusCode -eq 200) {
+                $body = $resp.Content | ConvertFrom-Json
+                $dbStatus = "DOWN"
+                if ($body.db -eq $true) { $dbStatus = "OK" }
+                Write-Host ("  /health OK (db=" + $dbStatus + ", version=" + $body.version + ") after " + ($i+1) + "s") -ForegroundColor Green
+                return $true
+            }
+        } catch {}
+    }
+    Write-Host ("  /health did NOT respond within " + $MaxSeconds + "s") -ForegroundColor Red
+    Write-Host "  Check the backend window for errors." -ForegroundColor Yellow
+    return $false
+}
+
+# ── Banner ──
 Write-Host ""
-Write-Host "======================================" -ForegroundColor DarkGray
-Write-Host "  SIT-System  v2.0  –  Starting...   " -ForegroundColor White
-Write-Host "======================================" -ForegroundColor DarkGray
-Write-Host ""
-Write-Host "[REMINDER] Start XAMPP MySQL + ensure 'sit_db' exists." -ForegroundColor Yellow
+Write-Host "==================================================" -ForegroundColor DarkGray
+Write-Host "  SIT-System v2.0 - Enterprise MVP Launcher"       -ForegroundColor White
+Write-Host "==================================================" -ForegroundColor DarkGray
+Write-Host "[REMINDER] Start XAMPP MySQL first. Ensure 'sit_db' exists." -ForegroundColor Yellow
+Write-Host ("ROOT: " + $ROOT) -ForegroundColor DarkGray
 Write-Host ""
 
-# 1. Kill old bot
-Write-Host "[1/5] Cleaning up old processes..." -ForegroundColor Gray
+# ── Sanity: venv python must exist ──
+if (-not (Test-Path -LiteralPath $VENV_PY)) {
+    Write-Host "ERROR: venv python not found:" -ForegroundColor Red
+    Write-Host ("  " + $VENV_PY) -ForegroundColor Red
+    Write-Host "" -ForegroundColor Yellow
+    Write-Host "Fix (run these one at a time):" -ForegroundColor Yellow
+    Write-Host "  cd backend"                                                  -ForegroundColor Yellow
+    Write-Host "  python -m venv .venv"                                        -ForegroundColor Yellow
+    Write-Host "  .venv\Scripts\python.exe -m pip install -r requirements.txt" -ForegroundColor Yellow
+    exit 1
+}
+
+# ── [1/6] Check for port conflicts ──
+Write-Host "[1/6] Checking for port conflicts..." -ForegroundColor Gray
+$conflict8001 = Test-PortConflict -Port 8001
+$conflict5500 = Test-PortConflict -Port 5500
+if ($conflict8001 -or $conflict5500) {
+    Start-Sleep -Seconds 1
+}
+
+# ── [2/6] Kill old bot.py processes (prevent Telegram 409) ──
+Write-Host "[2/6] Killing old bot.py processes..." -ForegroundColor Gray
 try {
     Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -like "*bot.py*" } |
-        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-} catch {}
-if (Test-Path -LiteralPath $BOT_LOCK) { Remove-Item -LiteralPath $BOT_LOCK -Force -ErrorAction SilentlyContinue }
+        Where-Object { $_.CommandLine -and ($_.CommandLine -like "*bot.py*") } |
+        ForEach-Object {
+            Write-Host ("  Killing PID " + $_.ProcessId) -ForegroundColor DarkYellow
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+} catch { }
+
+if (Test-Path -LiteralPath $BOT_LOCK) {
+    Remove-Item -LiteralPath $BOT_LOCK -Force -ErrorAction SilentlyContinue
+    Write-Host "  Removed stale .bot.lock" -ForegroundColor DarkGray
+}
 Start-Sleep -Seconds 1
 
-# 2. Backend
-Write-Host "[2/5] Starting Backend :8001..." -ForegroundColor White
-$beCmd = "Set-Location -LiteralPath '$BACKEND'; & '$VENV_PY' -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload; Read-Host 'Press Enter'"
-Start-Process powershell -ArgumentList "-NoExit","-Command",$beCmd
+# ── [3/6] Backend: uvicorn on :8001 ──
+Write-Host "[3/6] Starting Backend on 127.0.0.1:8001..." -ForegroundColor White
+$beCmd = "& '" + $VENV_PY + "' -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --log-level info"
+Start-ServiceWindow -Label "Backend (uvicorn :8001)" -WorkDir $BACKEND_DIR -Cmd $beCmd
 
-# 3. Frontend
-Write-Host "[3/5] Starting Frontend :5500..." -ForegroundColor White
-$feCmd = "Set-Location -LiteralPath '$FRONTEND'; & '$VENV_PY' -m http.server 5500 --bind 127.0.0.1; Read-Host 'Press Enter'"
-Start-Process powershell -ArgumentList "-NoExit","-Command",$feCmd
+# ── [4/6] Wait for backend /health before starting other services ──
+Write-Host "[4/6] Waiting for backend to be ready..." -ForegroundColor White
+$healthOk = Wait-ForHealth -MaxSeconds 20
 
-# 4. Bot
-Write-Host "[4/5] Starting Bot (3s delay)..." -ForegroundColor White
-Start-Sleep -Seconds 3
-$botCmd = "Set-Location -LiteralPath '$BOT_DIR'; & '$VENV_PY' -u bot.py; Read-Host 'Press Enter'"
-Start-Process powershell -ArgumentList "-NoExit","-Command",$botCmd
-
-# 5. Status
-Write-Host "[5/5] Checking ports..." -ForegroundColor Gray
-Start-Sleep -Seconds 5
-
-function Test-Port { param([string]$H,[int]$P)
-    try { $t=New-Object System.Net.Sockets.TcpClient; $a=$t.BeginConnect($H,$P,$null,$null); $ok=$a.AsyncWaitHandle.WaitOne(2000); if($ok){$t.EndConnect($a)}; $t.Close(); return $ok } catch { return $false }
+if (-not $healthOk) {
+    Write-Host ""
+    Write-Host "  Backend failed to start. Common causes:" -ForegroundColor Red
+    Write-Host "    - XAMPP MySQL not running"              -ForegroundColor Yellow
+    Write-Host "    - Database 'sit_db' does not exist"     -ForegroundColor Yellow
+    Write-Host "    - Python dependency missing (run pip install -r requirements.txt)" -ForegroundColor Yellow
+    Write-Host "    - Port 8001 still occupied"             -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Starting frontend and bot anyway..." -ForegroundColor Yellow
 }
-$be = Test-Port "127.0.0.1" 8001; $fe = Test-Port "127.0.0.1" 5500
+
+# ── [5/6] Frontend: http.server on :5500 ──
+Write-Host "[5/6] Starting Frontend on 127.0.0.1:5500..." -ForegroundColor White
+$feCmd = "& '" + $VENV_PY + "' -m http.server 5500 --bind 127.0.0.1"
+Start-ServiceWindow -Label "Frontend (http.server :5500)" -WorkDir $FRONTEND_DIR -Cmd $feCmd
+
+# ── Bot: launch after backend confirmed healthy ──
+Write-Host "  Starting Bot..." -ForegroundColor White
+Start-Sleep -Seconds 1
+$botCmd = "& '" + $VENV_PY + "' -u bot.py"
+Start-ServiceWindow -Label "Telegram Bot" -WorkDir $BOT_DIR -Cmd $botCmd
+
+# ── [6/6] Final port checks ──
+Write-Host "[6/6] Final port check..." -ForegroundColor Gray
+Start-Sleep -Seconds 2
+
+$beOk = Test-Port -HostName "127.0.0.1" -Port 8001
+$feOk = Test-Port -HostName "127.0.0.1" -Port 5500
 
 Write-Host ""
-Write-Host "======================================" -ForegroundColor DarkGray
-if ($be) { Write-Host "  Backend  (8001) : OK" -ForegroundColor Green } else { Write-Host "  Backend  (8001) : FAIL" -ForegroundColor Red }
-if ($fe) { Write-Host "  Frontend (5500) : OK" -ForegroundColor Green } else { Write-Host "  Frontend (5500) : FAIL" -ForegroundColor Red }
-Write-Host "  Bot              : Started" -ForegroundColor Yellow
-Write-Host "======================================" -ForegroundColor DarkGray
+Write-Host "==================================================" -ForegroundColor DarkGray
+if ($beOk) { Write-Host "  Backend  (8001) : PASS" -ForegroundColor Green }
+else       { Write-Host "  Backend  (8001) : FAIL - check backend window" -ForegroundColor Red }
+if ($healthOk) { Write-Host "  /health  check  : PASS" -ForegroundColor Green }
+else           { Write-Host "  /health  check  : FAIL - backend may still be starting" -ForegroundColor Yellow }
+if ($feOk) { Write-Host "  Frontend (5500) : PASS" -ForegroundColor Green }
+else       { Write-Host "  Frontend (5500) : FAIL - check frontend window" -ForegroundColor Red }
+Write-Host "  Bot              : Started (check its window)" -ForegroundColor Yellow
+Write-Host "==================================================" -ForegroundColor DarkGray
 Write-Host ""
 
+# ── Auto-open browser tabs ──
 Start-Process "http://127.0.0.1:8001/docs"
 Start-Process "http://127.0.0.1:5500/login.html"
 
-Write-Host "Admin: admin@example.com / admin123" -ForegroundColor White
-Write-Host "Swagger: http://127.0.0.1:8001/docs" -ForegroundColor Gray
-Write-Host "Panel:   http://127.0.0.1:5500/login.html" -ForegroundColor Gray
+# ── Credentials / URLs ──
+Write-Host "Admin  : admin@example.com / admin123" -ForegroundColor White
+Write-Host "Swagger: http://127.0.0.1:8001/docs"   -ForegroundColor Gray
+Write-Host "Health : http://127.0.0.1:8001/health"  -ForegroundColor Gray
+Write-Host "Panel  : http://127.0.0.1:5500/login.html" -ForegroundColor Gray
+Write-Host ""
+Write-Host "NOTE: /docs may take 5-10s to render (loads OpenAPI schema)." -ForegroundColor DarkGray
+Write-Host "      /health is the real readiness check."                    -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "To stop everything, close the spawned PowerShell windows." -ForegroundColor DarkGray
 Write-Host ""

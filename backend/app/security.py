@@ -1,9 +1,11 @@
-"""Authentication & authorization utilities (JWT + bcrypt)."""
+"""Authentication & authorization utilities (JWT + bcrypt + TOTP)."""
 
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Optional
 
+import pyotp
 from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -37,11 +39,31 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(data: dict) -> str:
+def create_access_token(data: dict, expires_minutes: Optional[int] = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES)
+    exp_min = expires_minutes if expires_minutes is not None else JWT_EXPIRE_MINUTES
+    expire = datetime.now(timezone.utc) + timedelta(minutes=exp_min)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def decode_token(token: str) -> dict:
+    """Decode a JWT and return the payload. Raises on invalid/expired."""
+    return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
+
+# ── TOTP helpers ──
+def generate_totp_secret() -> str:
+    return pyotp.random_base32()
+
+
+def get_totp_uri(secret: str, email: str, issuer: str = "SIT Admin") -> str:
+    return pyotp.TOTP(secret).provisioning_uri(name=email, issuer_name=issuer)
+
+
+def verify_totp_code(secret: str, code: str) -> bool:
+    totp = pyotp.TOTP(secret)
+    return totp.verify(code, valid_window=1)
 
 
 def get_current_admin(
@@ -57,8 +79,11 @@ def get_current_admin(
     )
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        email: str | None = payload.get("sub")
+        email: Optional[str] = payload.get("sub")
         if email is None:
+            raise auth_exc
+        # Reject 2FA-pending tokens used as full tokens
+        if payload.get("2fa_pending"):
             raise auth_exc
     except JWTError:
         raise auth_exc

@@ -93,25 +93,53 @@ async function openScanModal(id) {
     document.body.appendChild(overlay);
   }
   const bd = s.breakdown || [];
+  const intel = s.intel_summary || {};
   const domain = (() => { try { return new URL(s.link).hostname; } catch { return s.link; } })();
   const scoreClass = s.score >= 55 ? "high" : s.score >= 25 ? "med" : "low";
+
+  // Build intel summary section
+  let intelHtml = "";
+  if (intel && Object.keys(intel).length > 0) {
+    intelHtml = '<h3 style="margin-top:16px;font-size:14px;border-bottom:1px solid var(--border);padding-bottom:6px">Threat Intelligence</h3>' +
+      '<table style="width:100%;font-size:12px">';
+    if (intel.virustotal) {
+      const vt = intel.virustotal;
+      const vtStatus = vt.found ? (vt.positives > 0 ? '<span class="badge scam">Flagged ' + vt.positives + '/' + vt.total + '</span>' : '<span class="badge safe">Clean</span>') : '<span class="badge" style="background:#f3f4f6">Not found</span>';
+      intelHtml += '<tr><td style="font-weight:600;width:130px;color:var(--text-3)">VirusTotal</td><td>' + vtStatus;
+      if (vt.threat_label) intelHtml += ' <span class="reason-chip">' + vt.threat_label + '</span>';
+      if (vt.error) intelHtml += ' <span style="color:var(--text-3);font-size:11px">(' + vt.error + ')</span>';
+      intelHtml += '</td></tr>';
+    }
+    if (intel.urlhaus) {
+      const uh = intel.urlhaus;
+      const uhStatus = uh.found ? '<span class="badge scam">' + (uh.threat || 'Listed') + '</span>' : '<span class="badge safe">Not listed</span>';
+      intelHtml += '<tr><td style="font-weight:600;width:130px;color:var(--text-3)">URLhaus</td><td>' + uhStatus;
+      if (uh.tags && uh.tags.length) intelHtml += ' ' + uh.tags.map(function(t){ return '<span class="reason-chip">' + t + '</span>'; }).join("");
+      if (uh.error) intelHtml += ' <span style="color:var(--text-3);font-size:11px">(' + uh.error + ')</span>';
+      intelHtml += '</td></tr>';
+    }
+    intelHtml += '</table>';
+  }
 
   overlay.innerHTML = '<div class="modal"><div class="modal-header"><h2>Scan Evidence #' + s.id + '</h2>' +
     '<button class="btn-ghost" onclick="document.getElementById(\'scanModal\').style.display=\'none\'">&times;</button></div>' +
     '<div class="modal-body" id="evidenceBody">' +
-    '<div class="score-gauge"><div class="score-number">' + s.score + '</div><div><div style="font-size:12px;margin-bottom:4px"><span class="badge ' +
-    (s.threat_level || s.verdict) + '">' + (s.threat_level || s.verdict) + '</span></div>' +
+    '<div class="score-gauge"><div class="score-number">' + s.score + '</div><div style="flex:1"><div style="font-size:12px;margin-bottom:4px"><span class="badge ' +
+    (s.threat_level || s.verdict) + '">' + (s.threat_level || s.verdict) + '</span> <span class="badge ' +
+    s.verdict + '">' + s.verdict + '</span></div>' +
     '<div class="score-bar"><div class="score-fill ' + scoreClass + '" style="width:' + s.score + '%"></div></div></div></div>' +
     '<table class="evidence-table"><tr><td>URL</td><td><code>' + s.link + '</code></td></tr>' +
     '<tr><td>Domain</td><td>' + domain + '</td></tr>' +
     '<tr><td>Score</td><td>' + s.score + ' / 100</td></tr>' +
-    '<tr><td>Threat Level</td><td>' + (s.threat_level || "N/A") + '</td></tr>' +
-    '<tr><td>Verdict</td><td>' + s.verdict + '</td></tr>' +
+    '<tr><td>Threat Level</td><td><span class="badge ' + (s.threat_level || "LOW") + '">' + (s.threat_level || "N/A") + '</span></td></tr>' +
+    '<tr><td>Verdict</td><td><span class="badge ' + s.verdict + '">' + s.verdict + '</span></td></tr>' +
     '<tr><td>Date</td><td>' + (s.created_at || "N/A") + '</td></tr>' +
-    '<tr><td>Reasons</td><td>' + (s.reason || "").split(";").map(r => '<span class="reason-chip">' + r.trim() + '</span>').join("") + '</td></tr></table>' +
-    (bd.length ? '<h3 style="margin-top:16px;font-size:14px;border-bottom:1px solid var(--border);padding-bottom:6px">Breakdown</h3>' +
+    (s.message ? '<tr><td>Message</td><td style="font-size:12px;color:var(--text-2)">' + s.message.substring(0, 200) + '</td></tr>' : '') +
+    '<tr><td>Reasons</td><td>' + (s.reason || "").split(";").map(function(r){ return '<span class="reason-chip">' + r.trim() + '</span>'; }).join("") + '</td></tr></table>' +
+    intelHtml +
+    (bd.length ? '<h3 style="margin-top:16px;font-size:14px;border-bottom:1px solid var(--border);padding-bottom:6px">Breakdown (' + bd.length + ' rules)</h3>' +
     '<table style="width:100%;font-size:12px"><thead><tr><th>Source</th><th>Rule</th><th>Points</th><th>Detail</th></tr></thead><tbody>' +
-    bd.map(b => '<tr class="breakdown-row"><td>' + b.source + '</td><td>' + b.rule + '</td><td>+' + b.points + '</td><td>' + b.detail + '</td></tr>').join("") +
+    bd.map(function(b){ return '<tr class="breakdown-row"><td><span class="badge" style="background:#f3f4f6;text-transform:none">' + b.source + '</span></td><td>' + b.rule + '</td><td style="font-weight:600">+' + b.points + '</td><td>' + b.detail + '</td></tr>'; }).join("") +
     '</tbody></table>' : '') +
     '</div><div class="modal-footer">' +
     '<button class="btn btn-sm" onclick="copyEvidence()">Copy Evidence</button>' +

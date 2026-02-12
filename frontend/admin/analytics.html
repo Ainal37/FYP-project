@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SIT Admin – Scans</title>
+  <title>SIT Admin – Analytics</title>
   <link rel="stylesheet" href="assets/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <!-- Top Bar -->
@@ -45,67 +46,41 @@
       <div class="brand">ADMIN PANEL</div>
       <div class="brand-sub">Enterprise Dashboard</div>
       <a href="dashboard.html"><span class="nav-icon">&#9632;</span><span>Dashboard</span></a>
-      <a href="scans.html" class="active"><span class="nav-icon">&#128269;</span><span>Scans</span></a>
+      <a href="scans.html"><span class="nav-icon">&#128269;</span><span>Scans</span></a>
       <a href="users.html"><span class="nav-icon">&#128101;</span><span>Users</span></a>
       <a href="reports.html"><span class="nav-icon">&#128196;</span><span>Reports</span></a>
-      <a href="analytics.html"><span class="nav-icon">&#128200;</span><span>Analytics</span></a>
+      <a href="analytics.html" class="active"><span class="nav-icon">&#128200;</span><span>Analytics</span></a>
       <a href="settings.html"><span class="nav-icon">&#9881;</span><span>Settings</span></a>
       <div class="spacer"></div>
       <a href="#" class="logout-btn" onclick="logout()"><span class="nav-icon">&#10140;</span><span>Logout</span></a>
     </nav>
 
     <div class="main">
-      <h1>Scans</h1>
-      <div id="liveStatus" class="live-status">Last updated: -</div>
+      <h1>Analytics</h1>
+      <div id="liveStatus" class="live-status">Loading analytics...</div>
 
-      <div class="card">
-        <h2>Quick Scan</h2>
-        <form id="scanForm">
-          <div class="form-group">
-            <label for="scanLink">URL to scan</label>
-            <input type="text" id="scanLink" placeholder="https://example.com/suspicious-page" required />
-          </div>
-          <button type="submit" class="btn btn-primary">Scan</button>
-        </form>
-        <div id="scanResult" class="mt-2" style="display:none"></div>
+      <!-- Stats cards -->
+      <div class="stats-grid" id="analyticsStats">
+        <div class="stat-card"><div class="label">Total Scans</div><div class="value" id="anTotalScans">--</div></div>
+        <div class="stat-card"><div class="label">Scans This Week</div><div class="value" id="anWeekScans">--</div></div>
+        <div class="stat-card"><div class="label">Total Users</div><div class="value" id="anTotalUsers">--</div></div>
+        <div class="stat-card"><div class="label">Avg Score</div><div class="value" id="anAvgScore">--</div></div>
+      </div>
+
+      <!-- Charts -->
+      <div class="grid-2">
+        <div class="card"><h3>Verdict Distribution</h3><canvas id="anVerdictChart" height="260"></canvas></div>
+        <div class="card"><h3>Threat Level Distribution</h3><canvas id="anThreatChart" height="260"></canvas></div>
       </div>
 
       <div class="card">
-        <h2>Scan History</h2>
-        <div class="toolbar">
-          <input type="text" id="searchInput" placeholder="Search by link..." />
-          <select id="verdictFilter">
-            <option value="">All</option>
-            <option value="safe">Safe</option>
-            <option value="suspicious">Suspicious</option>
-            <option value="scam">Scam</option>
-          </select>
-          <span id="pageInfo" class="page-info">&mdash;</span>
-        </div>
-        <table>
-          <thead><tr><th>ID</th><th>Link</th><th>Threat</th><th>Score</th><th>Reason</th><th>Date</th></tr></thead>
-          <tbody id="scansBody"><tr><td colspan="6"><div class="skeleton skeleton-text"></div></td></tr></tbody>
-        </table>
-        <div class="pagination">
-          <button class="btn btn-sm" id="prevBtn" disabled>&laquo; Prev</button>
-          <button class="btn btn-sm" id="nextBtn" disabled>Next &raquo;</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Scan Evidence Modal -->
-  <div class="modal-overlay" id="scanModal" style="display:none" onclick="if(event.target===this)closeModal('scanModal')">
-    <div class="modal" style="max-width:700px">
-      <div class="modal-header"><h2>Scan Evidence</h2><button class="modal-close" onclick="closeModal('scanModal')">&#10005;</button></div>
-      <div class="modal-body" id="scanModalBody"></div>
-      <div class="modal-footer">
-        <button class="btn" onclick="closeModal('scanModal')">Close</button>
+        <h3>Report Status Breakdown</h3>
+        <canvas id="anReportChart" height="200"></canvas>
       </div>
     </div>
   </div>
 
   <script src="assets/js/api.js"></script>
-  <script src="assets/js/scans.js"></script>
+  <script src="assets/js/analytics.js"></script>
 </body>
 </html>

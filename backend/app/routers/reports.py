@@ -1,7 +1,10 @@
 """Report endpoints: create + list + detail + PATCH workflow."""
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 from ..database import get_db
 from ..models import Report
@@ -36,13 +39,20 @@ def create_report(
 def list_reports(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    status: str | None = Query(None),
+    status: Optional[str] = Query(None, description="Filter by status: new/investigating/resolved"),
+    search: Optional[str] = Query(None, description="Search by link or description"),
     db: Session = Depends(get_db),
     admin=Depends(get_current_admin),
 ):
     q = db.query(Report)
     if status and status in VALID_STATUSES:
         q = q.filter(Report.status == status)
+    if search:
+        pattern = f"%{search}%"
+        q = q.filter(or_(
+            Report.link.ilike(pattern),
+            Report.description.ilike(pattern),
+        ))
     rows = q.order_by(Report.id.desc()).offset(skip).limit(limit).all()
     return [_to_dict(r) for r in rows]
 

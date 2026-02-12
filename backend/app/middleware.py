@@ -8,6 +8,7 @@ import time
 import logging
 from collections import defaultdict
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 from jose import jwt, JWTError
@@ -35,14 +36,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.global_limit = global_limit
         self.window = window
-        self.buckets: dict[str, list[float]] = defaultdict(list)
+        self.buckets: Dict[str, List[float]] = defaultdict(list)
         self.endpoint_limits = {
             "/auth/login": 30,
             "/scans": 40,
             "/reports": 40,
         }
 
+    # Paths that must NEVER be rate-limited (health probes, root)
+    EXEMPT_PATHS = frozenset({"/", "/health", "/openapi.json", "/docs", "/redoc"})
+
     async def dispatch(self, request: Request, call_next):
+        # Skip rate limiting for health/docs paths so they always respond fast
+        if request.url.path.rstrip("/") in self.EXEMPT_PATHS or request.url.path in self.EXEMPT_PATHS:
+            return await call_next(request)
+
         ip = request.client.host if request.client else "0.0.0.0"
         now = time.time()
         cutoff = now - self.window
@@ -71,10 +79,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 class AuditLogMiddleware(BaseHTTPMiddleware):
     """Logs POST / PATCH / DELETE mutations to the audit_logs table."""
 
+    # Paths that produce too much noise or must never block
+    _SKIP_AUDIT = frozenset({"/health", "/", "/openapi.json", "/docs", "/redoc"})
+
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
 
-        if request.method in ("POST", "PATCH", "DELETE"):
+        if request.method in ("POST", "PATCH", "DELETE") and request.url.path not in self._SKIP_AUDIT:
             actor = _extract_actor(request)
             ip = request.client.host if request.client else None
             action = f"{request.method} {request.url.path}"
@@ -103,7 +114,7 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def _extract_actor(request: Request) -> str | None:
+def _extract_actor(request: Request) -> Optional[str]:
     auth = request.headers.get("authorization", "")
     if not auth.startswith("Bearer "):
         return None

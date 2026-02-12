@@ -20,6 +20,7 @@ evaluation/metrics.json
 # IDE
 .vscode/
 .idea/
+.cursor/
 *.swp
 
 # OS
