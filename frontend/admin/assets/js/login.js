@@ -1,20 +1,13 @@
-// ===== SIT Admin – Login Page =====
-
+// ===== SIT Admin – Login =====
 if (getToken()) window.location.href = "dashboard.html";
 
-document.getElementById("loginForm").addEventListener("submit", async (e) => {
+document.getElementById("loginForm").addEventListener("submit", async e => {
   e.preventDefault();
-  const errorDiv = document.getElementById("errorMsg");
-  errorDiv.style.display = "none";
-
-  const email    = document.getElementById("email").value.trim();
-  const password = document.getElementById("password").value;
-
+  const err = document.getElementById("errorMsg"); err.style.display = "none";
   try {
-    await login(email, password);
+    await login(document.getElementById("email").value.trim(), document.getElementById("password").value);
     window.location.href = "dashboard.html";
-  } catch (err) {
-    errorDiv.textContent = err.message || "Login failed. Is the backend running?";
-    errorDiv.style.display = "block";
+  } catch (ex) {
+    err.textContent = ex.message || "Login failed"; err.style.display = "block";
   }
 });

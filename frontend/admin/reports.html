@@ -14,14 +14,16 @@
       <a href="scans.html"><span>Scans</span></a>
       <a href="reports.html" class="active"><span>Reports</span></a>
       <div class="spacer"></div>
-      <a href="#" class="logout-btn" onclick="logout()"><span>Logout</span></a>
+      <a href="#" onclick="logout()"><span>Logout</span></a>
     </nav>
 
     <div class="main">
-      <h1>Reports</h1>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap">
+        <h1>Reports</h1>
+        <button class="btn btn-sm" id="viewToggle">Kanban View</button>
+      </div>
       <div id="liveStatus" class="live-status">Last updated: -</div>
 
-      <!-- Submit Report -->
       <div class="card">
         <h2>Submit Report</h2>
         <form id="reportForm">
@@ -30,7 +32,7 @@
             <input type="text" id="reportLink" placeholder="https://..." />
           </div>
           <div class="form-group">
-            <label for="reportType">Report Type</label>
+            <label for="reportType">Type</label>
             <select id="reportType">
               <option value="scam">Scam</option>
               <option value="phishing">Phishing</option>
@@ -41,20 +43,20 @@
           </div>
           <div class="form-group">
             <label for="reportDescription">Description</label>
-            <textarea id="reportDescription" rows="3" placeholder="Describe the scam or suspicious activity..." required></textarea>
+            <textarea id="reportDescription" rows="3" placeholder="Describe the issue..." required></textarea>
           </div>
-          <button type="submit" class="btn btn-primary">Submit Report</button>
+          <button type="submit" class="btn btn-primary">Submit</button>
         </form>
-        <div id="reportResult" class="mt-2" style="display:none;"></div>
+        <div id="reportResult" class="mt-2" style="display:none"></div>
       </div>
 
-      <!-- Report History -->
-      <div class="card">
+      <!-- TABLE VIEW -->
+      <div id="tableView" class="card">
         <h2>Report History</h2>
         <div class="toolbar">
           <input type="text" id="searchInput" placeholder="Search by link or description..." />
           <select id="statusFilter">
-            <option value="">All Statuses</option>
+            <option value="">All</option>
             <option value="new">New</option>
             <option value="investigating">Investigating</option>
             <option value="resolved">Resolved</option>
@@ -62,18 +64,21 @@
           <span id="pageInfo" class="page-info">&mdash;</span>
         </div>
         <table>
-          <thead>
-            <tr>
-              <th>ID</th><th>Link</th><th>Type</th><th>Description</th><th>Status</th><th>Date</th>
-            </tr>
-          </thead>
-          <tbody id="reportsBody">
-            <tr><td colspan="6" class="text-muted text-center">Loading...</td></tr>
-          </tbody>
+          <thead><tr><th>ID</th><th>Link</th><th>Type</th><th>Description</th><th>Status</th><th>Assignee</th><th>Action</th></tr></thead>
+          <tbody id="reportsBody"><tr><td colspan="7"><div class="skeleton skeleton-text"></div></td></tr></tbody>
         </table>
         <div class="pagination">
           <button class="btn btn-sm" id="prevBtn" disabled>&laquo; Prev</button>
           <button class="btn btn-sm" id="nextBtn" disabled>Next &raquo;</button>
+        </div>
+      </div>
+
+      <!-- KANBAN VIEW -->
+      <div id="kanbanView" style="display:none">
+        <div class="kanban-board">
+          <div class="kanban-col"><h4>New <span class="count">0</span></h4><div id="kanban-new"></div></div>
+          <div class="kanban-col"><h4>Investigating <span class="count">0</span></h4><div id="kanban-investigating"></div></div>
+          <div class="kanban-col"><h4>Resolved <span class="count">0</span></h4><div id="kanban-resolved"></div></div>
         </div>
       </div>
     </div>

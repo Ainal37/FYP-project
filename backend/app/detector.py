@@ -1,4 +1,6 @@
-"""Heuristic scam/phishing link scanner."""
+"""
+Heuristic URL Scanner – returns structured breakdown.
+"""
 
 import re
 from urllib.parse import urlparse
@@ -14,9 +16,14 @@ KEYWORDS = [
     "confirm", "suspend", "account", "urgent",
 ]
 
+SUSPICIOUS_TLDS = {".tk", ".ml", ".cf", ".gq", ".ga"}
 
-def scan_link(link: str):
-    """Return (verdict, score, reason_string)."""
+
+def heuristic_scan(link: str) -> dict:
+    """
+    Analyse a URL using heuristic rules.
+    Returns: {"breakdown": [{"source","rule","points","detail"}, ...]}
+    """
     link = link.strip()
     if not re.match(r"^https?://", link):
         link = "http://" + link
@@ -24,51 +31,76 @@ def scan_link(link: str):
     p = urlparse(link)
     host = (p.netloc or "").lower()
     scheme = (p.scheme or "").lower()
-
-    score = 0
-    reasons = []
+    breakdown = []
 
     # HTTPS missing
     if scheme != "https":
-        score += 10
-        reasons.append("HTTPS missing")
+        breakdown.append({
+            "source": "heuristic", "rule": "HTTPS missing",
+            "points": 12, "detail": "Connection not encrypted (HTTP)",
+        })
 
     # URL shortener
-    if host in SHORTENERS:
-        score += 25
-        reasons.append("URL shortener detected")
+    clean_host = host.split(":")[0]
+    if clean_host in SHORTENERS:
+        breakdown.append({
+            "source": "heuristic", "rule": "URL shortener",
+            "points": 18, "detail": f"Known shortener: {clean_host}",
+        })
 
     # IP address as domain
     if re.match(r"^\d{1,3}(\.\d{1,3}){3}(:\d+)?$", host):
-        score += 35
-        reasons.append("IP address used as domain")
+        breakdown.append({
+            "source": "heuristic", "rule": "IP-based URL",
+            "points": 25, "detail": f"IP address as domain: {host}",
+        })
+
+    # Suspicious TLD
+    for tld in SUSPICIOUS_TLDS:
+        if clean_host.endswith(tld):
+            breakdown.append({
+                "source": "heuristic", "rule": "Suspicious TLD",
+                "points": 16, "detail": f"Free/abused TLD: {tld}",
+            })
+            break
 
     # Suspicious keywords in path/query
     text = (p.path + " " + (p.query or "")).lower()
     hits = [k for k in KEYWORDS if k in text]
     if hits:
-        score += min(30, 5 * len(hits))
-        reasons.append("Suspicious keywords: " + ", ".join(hits[:6]))
+        pts = min(len(hits) * 7, 28)
+        breakdown.append({
+            "source": "heuristic", "rule": "Suspicious keywords",
+            "points": pts, "detail": "Keywords: " + ", ".join(hits[:6]),
+        })
 
     # Too many subdomains
-    if host.count(".") >= 3:
-        score += 15
-        reasons.append("Too many subdomains")
+    if clean_host.count(".") >= 3:
+        breakdown.append({
+            "source": "heuristic", "rule": "Excessive subdomains",
+            "points": 10, "detail": f"{clean_host.count('.') + 1} domain levels",
+        })
 
-    # URL too long
-    if len(link) > 120:
-        score += 10
-        reasons.append("URL too long")
+    # URL very long
+    if len(link) > 100:
+        breakdown.append({
+            "source": "heuristic", "rule": "Long URL",
+            "points": 8, "detail": f"{len(link)} characters",
+        })
 
-    # Clamp
-    score = min(score, 100)
+    return {"breakdown": breakdown}
 
-    if score >= 70:
+
+# ── Legacy wrapper (backward compat) ──
+def scan_link(link: str):
+    """Returns (verdict, score, reason) for backward compatibility."""
+    h = heuristic_scan(link)
+    score = min(sum(b["points"] for b in h["breakdown"]), 100)
+    reason = "; ".join(b["detail"] for b in h["breakdown"]) or "No red flags"
+    if score >= 55:
         verdict = "scam"
-    elif score >= 35:
+    elif score >= 25:
         verdict = "suspicious"
     else:
         verdict = "safe"
-
-    reason = "; ".join(reasons) if reasons else "No obvious red flags"
     return verdict, score, reason

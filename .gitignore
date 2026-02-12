@@ -1,25 +1,28 @@
-# ── Python ──
+# Python
 __pycache__/
 *.pyc
 *.pyo
+*.pkl
 
-# ── Virtual environment ──
+# Virtual env
 backend/.venv/
 
-# ── Environment / secrets ──
+# Secrets
 backend/.env
 backend/bot/.env
 
-# ── Runtime ──
+# Runtime
 backend/bot/.bot.lock
 
-# ── IDE / editor ──
+# Evaluation output (regenerable)
+evaluation/metrics.json
+
+# IDE
 .vscode/
 .idea/
 *.swp
-*.swo
 
-# ── OS files ──
+# OS
 Thumbs.db
 .DS_Store
 Desktop.ini

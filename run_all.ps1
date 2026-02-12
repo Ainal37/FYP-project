@@ -1,94 +1,72 @@
-# ==========================================
-# SIT-System One-Click Runner (VIVA READY)
-# Backend + Frontend Admin + Telegram Bot
-# ==========================================
-
+# ============================================================
+#  SIT-System – One-Click Launcher (Windows PowerShell)
+# ============================================================
 $ErrorActionPreference = "Stop"
 
-$ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ROOT = Split-Path -Parent $MyInvocation.MyCommand.Definition
+Set-Location -LiteralPath $ROOT
 
-$BACKEND_DIR  = Join-Path $ROOT "backend"
-$FRONTEND_DIR = Join-Path $ROOT "frontend\admin"
-
-$PY   = Join-Path $BACKEND_DIR ".venv\Scripts\python.exe"
-$LOCK = Join-Path $BACKEND_DIR "bot\.bot.lock"
-
-function Test-PortFast {
-  param([string]$HostName="127.0.0.1",[int]$Port,[int]$TimeoutMs=500)
-  try {
-    $client = New-Object System.Net.Sockets.TcpClient
-    $iar = $client.BeginConnect($HostName, $Port, $null, $null)
-    $ok = $iar.AsyncWaitHandle.WaitOne($TimeoutMs, $false)
-    if (-not $ok) { $client.Close(); return $false }
-    $client.EndConnect($iar); $client.Close(); return $true
-  } catch { return $false }
-}
+$BACKEND  = Join-Path $ROOT "backend"
+$FRONTEND = Join-Path $ROOT "frontend\admin"
+$VENV_PY  = Join-Path $BACKEND ".venv\Scripts\python.exe"
+$BOT_DIR  = Join-Path $BACKEND "bot"
+$BOT_LOCK = Join-Path $BOT_DIR ".bot.lock"
 
 Write-Host ""
-Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host " SIT-System Runner (VIVA READY)" -ForegroundColor Cyan
-Write-Host "==================================================" -ForegroundColor Cyan
-Write-Host "Reminder: Start XAMPP MySQL first (Apache optional)." -ForegroundColor Yellow
-Write-Host "ROOT: $ROOT" -ForegroundColor DarkGray
+Write-Host "======================================" -ForegroundColor DarkGray
+Write-Host "  SIT-System  v2.0  –  Starting...   " -ForegroundColor White
+Write-Host "======================================" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "[REMINDER] Start XAMPP MySQL + ensure 'sit_db' exists." -ForegroundColor Yellow
 Write-Host ""
 
-if (-not (Test-Path $PY)) {
-  Write-Host "❌ venv python not found: $PY" -ForegroundColor Red
-  Write-Host "Fix: create venv at backend\.venv and install requirements." -ForegroundColor Yellow
-  exit 1
-}
-
-# Remove bot lock
-if (Test-Path $LOCK) {
-  Remove-Item $LOCK -Force
-  Write-Host "🧹 Removed bot lock: $LOCK" -ForegroundColor DarkGray
-}
-
-# Kill old bot only (avoid Telegram 409)
+# 1. Kill old bot
+Write-Host "[1/5] Cleaning up old processes..." -ForegroundColor Gray
 try {
-  $botProcs = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-    Where-Object { $_.CommandLine -match "bot\.py" -and $_.CommandLine -match "backend\\bot" }
-  foreach ($p in $botProcs) {
-    Write-Host "🛑 Stopping old bot PID $($p.ProcessId)..." -ForegroundColor Yellow
-    Stop-Process -Id $p.ProcessId -Force
-  }
+    Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -like "*bot.py*" } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 } catch {}
+if (Test-Path -LiteralPath $BOT_LOCK) { Remove-Item -LiteralPath $BOT_LOCK -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Seconds 1
 
-# 1) Backend
-Start-Process powershell -ArgumentList @(
-  "-NoExit",
-  "-Command",
-  "& { Set-Location -LiteralPath '$BACKEND_DIR'; & '$PY' -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --log-level info }"
-)
+# 2. Backend
+Write-Host "[2/5] Starting Backend :8001..." -ForegroundColor White
+$beCmd = "Set-Location -LiteralPath '$BACKEND'; & '$VENV_PY' -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload; Read-Host 'Press Enter'"
+Start-Process powershell -ArgumentList "-NoExit","-Command",$beCmd
 
-# 2) Frontend server
-Start-Process powershell -ArgumentList @(
-  "-NoExit",
-  "-Command",
-  "& { Set-Location -LiteralPath '$FRONTEND_DIR'; py -m http.server 5500 }"
-)
+# 3. Frontend
+Write-Host "[3/5] Starting Frontend :5500..." -ForegroundColor White
+$feCmd = "Set-Location -LiteralPath '$FRONTEND'; & '$VENV_PY' -m http.server 5500 --bind 127.0.0.1; Read-Host 'Press Enter'"
+Start-Process powershell -ArgumentList "-NoExit","-Command",$feCmd
 
-# 3) Bot
-Start-Process powershell -ArgumentList @(
-  "-NoExit",
-  "-Command",
-  "& { Set-Location -LiteralPath '$BACKEND_DIR\bot'; & '$PY' bot.py }"
-)
+# 4. Bot
+Write-Host "[4/5] Starting Bot (3s delay)..." -ForegroundColor White
+Start-Sleep -Seconds 3
+$botCmd = "Set-Location -LiteralPath '$BOT_DIR'; & '$VENV_PY' -u bot.py; Read-Host 'Press Enter'"
+Start-Process powershell -ArgumentList "-NoExit","-Command",$botCmd
 
-Start-Sleep -Seconds 2
+# 5. Status
+Write-Host "[5/5] Checking ports..." -ForegroundColor Gray
+Start-Sleep -Seconds 5
 
-Write-Host "==================== STATUS CHECK ====================" -ForegroundColor Cyan
-if (Test-PortFast -Port 8001) { Write-Host "✅ Backend  (127.0.0.1:8001) [PASS]" -ForegroundColor Green }
-else { Write-Host "❌ Backend  (127.0.0.1:8001) [FAIL]" -ForegroundColor Red }
+function Test-Port { param([string]$H,[int]$P)
+    try { $t=New-Object System.Net.Sockets.TcpClient; $a=$t.BeginConnect($H,$P,$null,$null); $ok=$a.AsyncWaitHandle.WaitOne(2000); if($ok){$t.EndConnect($a)}; $t.Close(); return $ok } catch { return $false }
+}
+$be = Test-Port "127.0.0.1" 8001; $fe = Test-Port "127.0.0.1" 5500
 
-if (Test-PortFast -Port 5500) { Write-Host "✅ Frontend (127.0.0.1:5500) [PASS]" -ForegroundColor Green }
-else { Write-Host "❌ Frontend (127.0.0.1:5500) [FAIL]" -ForegroundColor Red }
-Write-Host "======================================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "======================================" -ForegroundColor DarkGray
+if ($be) { Write-Host "  Backend  (8001) : OK" -ForegroundColor Green } else { Write-Host "  Backend  (8001) : FAIL" -ForegroundColor Red }
+if ($fe) { Write-Host "  Frontend (5500) : OK" -ForegroundColor Green } else { Write-Host "  Frontend (5500) : FAIL" -ForegroundColor Red }
+Write-Host "  Bot              : Started" -ForegroundColor Yellow
+Write-Host "======================================" -ForegroundColor DarkGray
 Write-Host ""
 
 Start-Process "http://127.0.0.1:8001/docs"
 Start-Process "http://127.0.0.1:5500/login.html"
 
-Write-Host "✅ Started: Backend(8001) + Frontend(5500) + Bot" -ForegroundColor Green
-Write-Host "Notes: To stop everything, close the spawned PowerShell windows." -ForegroundColor DarkGray
+Write-Host "Admin: admin@example.com / admin123" -ForegroundColor White
+Write-Host "Swagger: http://127.0.0.1:8001/docs" -ForegroundColor Gray
+Write-Host "Panel:   http://127.0.0.1:5500/login.html" -ForegroundColor Gray
 Write-Host ""

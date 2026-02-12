@@ -1,81 +1,148 @@
-// ===== SIT Admin – Dashboard Page =====
-
+// ===== SIT Admin – Dashboard (Command Center) =====
 requireAuth();
 
-let lastTopId = null;
+let lastTopScanId = null;
+let trendChart = null;
+let distChart = null;
 
-function setStatus(msg) {
-  const el = document.getElementById("liveStatus");
-  if (el) el.textContent = msg;
+function setStatus(msg) { const el = document.getElementById("liveStatus"); if (el) el.textContent = msg; }
+
+function renderDashboard(d) {
+  if (!d) return;
+
+  // Stats
+  document.getElementById("totalScans").textContent = d.total_scans ?? "--";
+  document.getElementById("totalReports").textContent = d.total_reports ?? "--";
+  document.getElementById("highCount").textContent = d.threat_breakdown?.HIGH ?? 0;
+  document.getElementById("medCount").textContent = d.threat_breakdown?.MED ?? 0;
+  document.getElementById("lowCount").textContent = d.threat_breakdown?.LOW ?? 0;
+
+  // Charts
+  renderTrendChart(d.trend);
+  renderDistChart(d.breakdown);
+
+  // Top triggers
+  const trig = document.getElementById("triggersSection");
+  if (trig && d.top_triggers) {
+    if (d.top_triggers.length === 0) { trig.innerHTML = '<p class="text-muted">No data yet</p>'; }
+    else {
+      trig.innerHTML = '<table><thead><tr><th>Rule</th><th>Count</th></tr></thead><tbody>' +
+        d.top_triggers.map(t => '<tr><td>' + t.rule + '</td><td>' + t.count + '</td></tr>').join("") +
+        '</tbody></table>';
+    }
+  }
+
+  // Activity feed
+  const feed = document.getElementById("activityFeed");
+  if (feed && d.recent_activity) {
+    if (d.recent_activity.length === 0) { feed.innerHTML = '<p class="text-muted">No activity yet</p>'; }
+    else {
+      feed.innerHTML = d.recent_activity.map(a =>
+        '<div class="activity-item"><div class="activity-dot"></div><div><span class="act-action">' +
+        a.action + '</span> by ' + (a.actor || "system") +
+        '</div><span class="act-time">' + (a.time || "") + '</span></div>'
+      ).join("");
+    }
+  }
+
+  // Metrics
+  const met = document.getElementById("metricsSection");
+  if (met && d.metrics && !d.metrics.error) {
+    met.innerHTML = '<div class="metrics-grid">' +
+      mc("Accuracy", d.metrics.accuracy) + mc("Precision", d.metrics.precision) +
+      mc("Recall", d.metrics.recall) + mc("F1 Score", d.metrics.f1) +
+      mc("Dataset", d.metrics.dataset_size) +
+      '</div><p class="text-muted mt-1" style="font-size:11px">Last evaluated: ' + (d.metrics.last_evaluated || "N/A") + '</p>';
+  } else if (met) {
+    met.innerHTML = '<p class="text-muted">No evaluation run yet. <button class="btn btn-sm" onclick="doEval()">Run Now</button></p>';
+  }
+
+  // Latest scans
+  const stb = document.getElementById("latestScansBody");
+  const scans = d.latest_scans || [];
+  if (stb) {
+    if (scans.length === 0) { stb.innerHTML = '<tr><td colspan="5" class="text-muted text-center">No scans yet</td></tr>'; }
+    else {
+      stb.innerHTML = scans.map(s =>
+        '<tr data-id="' + s.id + '"><td>' + s.id + '</td><td class="link-cell" title="' + s.link + '">' + s.link +
+        '</td><td><span class="badge ' + (s.threat_level || s.verdict) + '">' + (s.threat_level || s.verdict) + '</span></td><td>' +
+        s.score + '</td><td>' + (s.created_at || "\u2014") + '</td></tr>'
+      ).join("");
+      const topId = scans[0]?.id;
+      if (lastTopScanId !== null && topId && topId !== lastTopScanId) {
+        const tr = stb.querySelector('tr[data-id="' + topId + '"]');
+        if (tr) { tr.classList.add("row-new"); setTimeout(() => tr.classList.remove("row-new"), 2500); }
+      }
+      lastTopScanId = topId;
+    }
+  }
+
+  // Latest reports
+  const rtb = document.getElementById("latestReportsBody");
+  const reps = d.latest_reports || [];
+  if (rtb) {
+    if (reps.length === 0) { rtb.innerHTML = '<tr><td colspan="5" class="text-muted text-center">No reports yet</td></tr>'; }
+    else {
+      rtb.innerHTML = reps.map(r =>
+        '<tr><td>' + r.id + '</td><td class="link-cell" title="' + (r.link || "") + '">' + (r.link || "\u2014") +
+        '</td><td>' + (r.report_type || "\u2014") + '</td><td><span class="badge ' + r.status + '">' + r.status +
+        '</span></td><td>' + (r.created_at || "\u2014") + '</td></tr>'
+      ).join("");
+    }
+  }
 }
 
-function renderDashboard(data) {
-  if (!data) return;
+function mc(label, val) {
+  const v = typeof val === "number" && val <= 1 ? (val * 100).toFixed(1) + "%" : val;
+  return '<div class="metric-card"><div class="metric-val">' + v + '</div><div class="metric-label">' + label + '</div></div>';
+}
 
-  document.getElementById("totalScans").textContent     = data.total_scans ?? "--";
-  document.getElementById("totalReports").textContent    = data.total_reports ?? "--";
-  document.getElementById("scamCount").textContent       = data.breakdown?.scam ?? "--";
-  document.getElementById("suspiciousCount").textContent  = data.breakdown?.suspicious ?? "--";
-  document.getElementById("safeCount").textContent       = data.breakdown?.safe ?? "--";
+function renderTrendChart(trend) {
+  if (!trend || !document.getElementById("trendChart")) return;
+  const ctx = document.getElementById("trendChart").getContext("2d");
+  const cfg = {
+    type: "line",
+    data: {
+      labels: trend.labels,
+      datasets: [
+        { label: "Scam", data: trend.scam, borderColor: "#991b1b", backgroundColor: "rgba(153,27,27,.08)", tension: .3, fill: true },
+        { label: "Suspicious", data: trend.suspicious, borderColor: "#92400e", backgroundColor: "rgba(146,64,14,.08)", tension: .3, fill: true },
+        { label: "Safe", data: trend.safe, borderColor: "#065f46", backgroundColor: "rgba(6,95,70,.08)", tension: .3, fill: true },
+      ],
+    },
+    options: { responsive: true, plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } } }, scales: { y: { beginAtZero: true, ticks: { font: { size: 11 } } }, x: { ticks: { font: { size: 11 } } } } },
+  };
+  if (trendChart) { trendChart.data = cfg.data; trendChart.update(); } else { trendChart = new Chart(ctx, cfg); }
+}
 
-  // ── Latest Scans ──
-  const tbody = document.getElementById("latestScansBody");
-  const scans = data.latest_scans || [];
+function renderDistChart(breakdown) {
+  if (!breakdown || !document.getElementById("distChart")) return;
+  const ctx = document.getElementById("distChart").getContext("2d");
+  const cfg = {
+    type: "doughnut",
+    data: {
+      labels: ["Scam", "Suspicious", "Safe"],
+      datasets: [{ data: [breakdown.scam || 0, breakdown.suspicious || 0, breakdown.safe || 0], backgroundColor: ["#991b1b", "#d97706", "#059669"], borderWidth: 0 }],
+    },
+    options: { responsive: true, cutout: "65%", plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } } } },
+  };
+  if (distChart) { distChart.data = cfg.data; distChart.update(); } else { distChart = new Chart(ctx, cfg); }
+}
 
-  if (scans.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">No scans yet.</td></tr>';
-  } else {
-    tbody.innerHTML = scans.map(s => `
-      <tr data-id="${s.id}">
-        <td>${s.id}</td>
-        <td class="link-cell" title="${s.link}">${s.link}</td>
-        <td><span class="badge ${s.verdict}">${s.verdict}</span></td>
-        <td>${s.score}</td>
-        <td>${s.created_at || "\u2014"}</td>
-      </tr>
-    `).join("");
-
-    const topId = scans[0]?.id;
-    if (lastTopId !== null && topId && topId !== lastTopId) {
-      const tr = tbody.querySelector('tr[data-id="' + topId + '"]');
-      if (tr) {
-        tr.classList.add("row-new");
-        setTimeout(() => tr.classList.remove("row-new"), 2500);
-      }
-    }
-    lastTopId = topId;
-  }
-
-  // ── Latest Reports ──
-  const rtbody = document.getElementById("latestReportsBody");
-  if (rtbody) {
-    const reports = data.latest_reports || [];
-    if (reports.length === 0) {
-      rtbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center">No reports yet.</td></tr>';
-    } else {
-      rtbody.innerHTML = reports.map(r => `
-        <tr>
-          <td>${r.id}</td>
-          <td class="link-cell" title="${r.link || ''}">${r.link || "\u2014"}</td>
-          <td>${r.report_type || "\u2014"}</td>
-          <td><span class="badge ${r.status}">${r.status}</span></td>
-          <td>${r.created_at || "\u2014"}</td>
-        </tr>
-      `).join("");
-    }
-  }
+async function doEval() {
+  showToast("Running evaluation\u2026", "info");
+  const r = await runEvaluation();
+  if (r && !r.error) { showToast("Evaluation complete", "success"); refresh(); }
+  else showToast("Evaluation failed", "error");
 }
 
 async function refresh() {
   try {
     setStatus("Updating\u2026");
-    const data = await loadDashboardStats();
-    renderDashboard(data);
-    setStatus("Last updated: " + new Date().toLocaleString());
-  } catch (err) {
-    console.error("Dashboard load error:", err);
-    setStatus("Update failed (check backend/token).");
-  }
+    const d = await loadDashboardStats();
+    renderDashboard(d);
+    setStatus("Last updated: " + new Date().toLocaleTimeString());
+  } catch (e) { setStatus("Update failed"); }
 }
 
 refresh();

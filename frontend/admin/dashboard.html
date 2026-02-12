@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SIT Admin – Dashboard</title>
+  <title>SIT Admin – Command Center</title>
   <link rel="stylesheet" href="assets/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="layout">
@@ -14,43 +15,64 @@
       <a href="scans.html"><span>Scans</span></a>
       <a href="reports.html"><span>Reports</span></a>
       <div class="spacer"></div>
-      <a href="#" class="logout-btn" onclick="logout()"><span>Logout</span></a>
+      <a href="#" onclick="logout()"><span>Logout</span></a>
     </nav>
 
     <div class="main">
-      <h1>Dashboard</h1>
+      <!-- Hero -->
+      <div class="hero">
+        <div class="hero-content">
+          <h1>Command Center</h1>
+          <p>Threat monitoring &amp; intelligence overview</p>
+        </div>
+        <div class="status-chips">
+          <span class="chip chip-ok" id="chipBackend">Backend</span>
+          <span class="chip chip-ok" id="chipDB">MySQL</span>
+          <span class="chip" id="chipIntel">Intel</span>
+        </div>
+      </div>
       <div id="liveStatus" class="live-status">Last updated: -</div>
 
+      <!-- Stats -->
       <div class="stats-grid">
         <div class="stat-card"><div class="label">Total Scans</div><div class="value" id="totalScans">--</div></div>
         <div class="stat-card"><div class="label">Total Reports</div><div class="value" id="totalReports">--</div></div>
-        <div class="stat-card scam"><div class="label">Scam</div><div class="value" id="scamCount">--</div></div>
-        <div class="stat-card suspicious"><div class="label">Suspicious</div><div class="value" id="suspiciousCount">--</div></div>
-        <div class="stat-card safe"><div class="label">Safe</div><div class="value" id="safeCount">--</div></div>
+        <div class="stat-card high"><div class="label">High Threat</div><div class="value" id="highCount">--</div></div>
+        <div class="stat-card med"><div class="label">Medium</div><div class="value" id="medCount">--</div></div>
+        <div class="stat-card low"><div class="label">Low / Safe</div><div class="value" id="lowCount">--</div></div>
       </div>
 
-      <div class="card">
-        <h2>Latest Scans</h2>
-        <table>
-          <thead>
-            <tr><th>ID</th><th>Link</th><th>Verdict</th><th>Score</th><th>Date</th></tr>
-          </thead>
-          <tbody id="latestScansBody">
-            <tr><td colspan="5" class="text-muted text-center">Loading...</td></tr>
-          </tbody>
-        </table>
+      <!-- Charts -->
+      <div class="grid-2">
+        <div class="card"><h3>Scan Trend (7 days)</h3><canvas id="trendChart" height="200"></canvas></div>
+        <div class="card"><h3>Verdict Distribution</h3><canvas id="distChart" height="200"></canvas></div>
       </div>
 
-      <div class="card">
-        <h2>Latest Reports</h2>
-        <table>
-          <thead>
-            <tr><th>ID</th><th>Link</th><th>Type</th><th>Status</th><th>Date</th></tr>
-          </thead>
-          <tbody id="latestReportsBody">
-            <tr><td colspan="5" class="text-muted text-center">Loading...</td></tr>
-          </tbody>
-        </table>
+      <!-- Triggers + Activity -->
+      <div class="grid-2">
+        <div class="card"><h3>Top Threat Triggers</h3><div id="triggersSection"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text" style="width:60%"></div></div></div>
+        <div class="card"><h3>Live Activity</h3><div id="activityFeed"><div class="skeleton skeleton-text"></div><div class="skeleton skeleton-text" style="width:70%"></div></div></div>
+      </div>
+
+      <!-- Model Performance -->
+      <div class="card"><h3>Model Performance</h3><div id="metricsSection"><div class="skeleton skeleton-bar"></div></div></div>
+
+      <!-- Latest Tables -->
+      <div class="grid-2">
+        <div class="card">
+          <h3>Latest Scans</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Link</th><th>Threat</th><th>Score</th><th>Date</th></tr></thead>
+            <tbody id="latestScansBody"><tr><td colspan="5"><div class="skeleton skeleton-text"></div></td></tr></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h3>Latest Reports</h3>
+          <table>
+            <thead><tr><th>ID</th><th>Link</th><th>Type</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody id="latestReportsBody"><tr><td colspan="5"><div class="skeleton skeleton-text"></div></td></tr></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
