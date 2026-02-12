@@ -1,4 +1,4 @@
-# SIT-System – Scammer Identification & Validation Tool
+# FYP-project: SIT-System – Scammer Identification & Validation Tool
 
 A full-stack system that detects scam/phishing links via a **Telegram bot**, stores results in **MySQL**, and provides an **admin dashboard** for monitoring.
 
