@@ -88,6 +88,11 @@ class UserSecurity(Base):
     totp_secret = Column(String(255), nullable=True)
     mfa_required = Column(Boolean, nullable=False, default=False)
     session_timeout_minutes = Column(Integer, nullable=False, default=480)
+    # JSON list of SHA256 hashes for one-time recovery codes
+    recovery_codes_hash = Column(Text, nullable=True)
+    # Lockout + abuse protection for 2FA and step-up operations
+    twofa_failed_attempts = Column(Integer, nullable=False, default=0)
+    twofa_locked_until = Column(TIMESTAMP, nullable=True)
 
 
 class Notification(Base):

@@ -120,12 +120,22 @@ class SettingsResponse(BaseModel):
     timezone: Optional[str] = None
     backup_schedule: Optional[str] = None
     auto_backup: Optional[str] = None
+    # extended enterprise fields
+    session_timeout_min: Optional[int] = None
+    auto_backup_enabled: Optional[bool] = None
+    backup_time: Optional[str] = None      # "HH:MM"
+    retention_count: Optional[int] = None
+    last_backup_at: Optional[str] = None
 
 class SettingsUpdate(BaseModel):
     system_name: Optional[str] = None
     timezone: Optional[str] = None
     backup_schedule: Optional[str] = None
     auto_backup: Optional[str] = None
+    session_timeout_min: Optional[int] = None
+    auto_backup_enabled: Optional[bool] = None
+    backup_time: Optional[str] = None
+    retention_count: Optional[int] = None
 
 
 # ── Enterprise: Security ──
@@ -136,6 +146,10 @@ class ChangePasswordRequest(BaseModel):
 class TwoFASetupResponse(BaseModel):
     secret: str
     otpauth_uri: str
+    # Convenience alias for frontend QR generators
+    otpauth_url: Optional[str] = None
+    # Optional inline QR SVG (may be empty string)
+    qr_svg: Optional[str] = None
 
 class TwoFAConfirmRequest(BaseModel):
     code: str = Field(..., min_length=6, max_length=6)
@@ -145,9 +159,16 @@ class Verify2FARequest(BaseModel):
     code: str = Field(..., min_length=6, max_length=6)
 
 
+class TwoFADisableRequest(BaseModel):
+    """Step-up payload for disabling 2FA (TOTP code or recovery code)."""
+    code_or_recovery: str = Field(..., min_length=4, max_length=64)
+
+
 # ── Enterprise: Backup ──
 class BackupRunRequest(BaseModel):
-    scopes: List[str] = Field(default_factory=lambda: ["user_data", "reports", "system_settings", "audit_logs"])
+    scopes: List[str] = Field(
+        default_factory=lambda: ["system_settings", "admin_users", "reports", "audit_logs"]
+    )
 
 class BackupResponse(BaseModel):
     id: int
@@ -157,3 +178,15 @@ class BackupResponse(BaseModel):
     file_path: Optional[str] = None
     created_at: Optional[str] = None
     finished_at: Optional[str] = None
+    file_exists: Optional[bool] = None
+    resolved_path: Optional[str] = None
+
+
+class BackupRestoreRequest(BaseModel):
+    mode: str = "safe"  # "safe" | "full"
+
+
+class BackupRestoreResponse(BaseModel):
+    ok: bool = True
+    mode: str  # "safe" | "full"
+    restored_counts: dict  # e.g. {"system_settings": 5, "admin_users": 2, ...}

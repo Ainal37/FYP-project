@@ -149,7 +149,7 @@
     try {
       var res = await authFetch("/backup/run", {
         method: "POST",
-        body: JSON.stringify({ scopes: ["user_data", "reports", "system_settings", "audit_logs"] }),
+        body: JSON.stringify({ scopes: ["system_settings", "admin_users", "reports", "audit_logs"] }),
       });
       if (!res) return;
       if (res.ok) {
@@ -159,6 +159,69 @@
         showToast("Backup failed", "error");
       }
     } catch (e) { showToast("Backup error", "error"); }
+  };
+
+  window.downloadLatestBackup = async function () {
+    var btn = document.getElementById("btnDownloadBackup");
+    if (btn) { btn.disabled = true; btn.textContent = "Downloading..."; }
+    try {
+      var list = await listBackups();
+      if (!list || list.length === 0) { showToast("No backups to download", "error"); return; }
+      var latest = list[0];
+      if (latest.status !== "done" || !latest.file_path) { showToast("Latest backup has no file", "error"); return; }
+      await downloadBackup(latest.id);
+      showToast("Download started", "success");
+    } catch (e) { showToast(e.message || "Download failed", "error"); }
+    if (btn) { btn.disabled = false; btn.textContent = "Download latest backup"; }
+  };
+
+  window.openRestoreModal = function () {
+    var sel = document.getElementById("restoreBackupId");
+    var modal = document.getElementById("restoreBackupModal");
+    if (!sel || !modal) return;
+    sel.innerHTML = "<option value=\"\">Loading...</option>";
+    modal.style.display = "flex";
+    listBackups().then(function (list) {
+      sel.innerHTML = "";
+      if (!list || list.length === 0) { sel.innerHTML = "<option value=\"\">No backups</option>"; return; }
+      list.forEach(function (b) {
+        if (b.status === "done" && b.file_path) {
+          var opt = document.createElement("option");
+          opt.value = b.id;
+          opt.textContent = "Backup #" + b.id + " – " + (b.created_at || "");
+          sel.appendChild(opt);
+        }
+      });
+      if (sel.options.length === 0) sel.innerHTML = "<option value=\"\">No completed backups</option>";
+    });
+    document.getElementById("restoreConfirm").value = "";
+  };
+
+  window.closeRestoreModal = function () {
+    var modal = document.getElementById("restoreBackupModal");
+    if (modal) modal.style.display = "none";
+  };
+
+  window.submitRestore = async function () {
+    var confirmVal = document.getElementById("restoreConfirm").value.trim();
+    if (confirmVal !== "RESTORE") { showToast("Type RESTORE to confirm", "error"); return; }
+    var backupId = document.getElementById("restoreBackupId").value;
+    var mode = document.getElementById("restoreMode").value || "safe";
+    if (!backupId) { showToast("Select a backup", "error"); return; }
+    var btn = document.getElementById("btnRestoreSubmit");
+    if (btn) { btn.disabled = true; btn.textContent = "Restoring..."; }
+    try {
+      var res = await restoreBackup(parseInt(backupId, 10), mode);
+      if (res && res.ok) {
+        showToast("Restore completed: " + mode, "success");
+        closeRestoreModal();
+        loadSettings();
+        loadLastBackup();
+      } else {
+        showToast(res && res.detail ? res.detail : "Restore failed", "error");
+      }
+    } catch (e) { showToast(e.message || "Restore failed", "error"); }
+    if (btn) { btn.disabled = false; btn.textContent = "Restore"; }
   };
 
   window.saveAutoBackup = async function (el) {

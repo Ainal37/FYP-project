@@ -188,6 +188,24 @@ async function get2FAStatus() { var r = await authFetch("/security/2fa/status");
 // ── Backup (enterprise) ──
 async function runBackup(scopes) { var r = await authFetch("/backup/run", { method: "POST", body: JSON.stringify({ scopes: scopes }) }); return r ? r.json() : null; }
 async function listBackups() { var r = await authFetch("/backup"); return r ? r.json() : []; }
+async function downloadBackup(backupId) {
+  var token = getToken();
+  if (!token) return null;
+  var r = await fetch(BASE_URL + "/backup/download/" + backupId, { headers: { "Authorization": "Bearer " + token } });
+  if (!r.ok) throw new Error(r.status === 404 ? "Backup or file not found" : "Download failed");
+  var blob = await r.blob();
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a"); a.href = url; a.download = "backup_" + backupId + ".json"; a.click();
+  URL.revokeObjectURL(url);
+  return true;
+}
+async function restoreBackup(backupId, mode) {
+  var r = await authFetch("/backup/restore/" + backupId, { method: "POST", body: JSON.stringify({ mode: mode || "safe" }) });
+  if (!r) return null;
+  var body = await r.json();
+  if (!r.ok) return { ok: false, detail: body.detail || "Restore failed" };
+  return body;
+}
 
 // ── Audit (enterprise) ──
 async function listAuditLogs(q) { var r = await authFetch("/audit" + (q || "")); return r ? r.json() : []; }

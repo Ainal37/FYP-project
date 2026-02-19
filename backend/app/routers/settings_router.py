@@ -11,7 +11,18 @@ from ..schemas import SettingsResponse, SettingsUpdate
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
-_ALLOWED_KEYS = {"system_name", "timezone", "backup_schedule", "auto_backup"}
+_ALLOWED_KEYS = {
+    "system_name",
+    "timezone",
+    "backup_schedule",
+    "auto_backup",
+    # extended enterprise keys
+    "session_timeout_min",
+    "auto_backup_enabled",
+    "backup_time",
+    "retention_count",
+    "last_backup_at",
+}
 
 
 @router.get("", response_model=SettingsResponse)
@@ -21,7 +32,30 @@ def get_settings(
 ):
     rows = db.query(SystemSetting).filter(SystemSetting.key.in_(_ALLOWED_KEYS)).all()
     kv = {r.key: r.value for r in rows}
-    return SettingsResponse(**kv)
+
+    # normalise types for response
+    def _to_bool(val: str | None) -> bool | None:
+        if val is None:
+            return None
+        return val.lower() in {"1", "true", "yes", "on"}
+
+    def _to_int(val: str | None) -> int | None:
+        try:
+            return int(val) if val is not None else None
+        except Exception:
+            return None
+
+    return SettingsResponse(
+        system_name=kv.get("system_name"),
+        timezone=kv.get("timezone"),
+        backup_schedule=kv.get("backup_schedule"),
+        auto_backup=kv.get("auto_backup"),
+        session_timeout_min=_to_int(kv.get("session_timeout_min")),
+        auto_backup_enabled=_to_bool(kv.get("auto_backup_enabled")),
+        backup_time=kv.get("backup_time"),
+        retention_count=_to_int(kv.get("retention_count")),
+        last_backup_at=kv.get("last_backup_at"),
+    )
 
 
 @router.patch("", response_model=SettingsResponse)
@@ -50,7 +84,5 @@ def update_settings(
     ))
     db.commit()
 
-    # Return current state
-    rows = db.query(SystemSetting).filter(SystemSetting.key.in_(_ALLOWED_KEYS)).all()
-    kv = {r.key: r.value for r in rows}
-    return SettingsResponse(**kv)
+    # Return current state via get_settings helper
+    return get_settings(db=db, admin=admin)

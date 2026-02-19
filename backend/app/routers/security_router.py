@@ -1,4 +1,9 @@
-"""Security endpoints: change password, 2FA setup/confirm (enterprise)."""
+"""Security endpoints: password change, 2FA, and session controls."""
+
+from datetime import datetime, timedelta, timezone
+import json
+import secrets
+import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -11,9 +16,51 @@ from ..security import (
 )
 from ..schemas import (
     ChangePasswordRequest, TwoFASetupResponse, TwoFAConfirmRequest,
+    TwoFADisableRequest,
 )
 
 router = APIRouter(prefix="/security", tags=["security"])
+
+_LOCKOUT_THRESHOLD = 5
+_LOCKOUT_MINUTES = 5
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _hash_code(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _ensure_user_security(db: Session, admin: AdminUser) -> UserSecurity:
+    sec = db.query(UserSecurity).filter(UserSecurity.user_id == admin.id).first()
+    if not sec:
+        sec = UserSecurity(user_id=admin.id)
+        db.add(sec)
+        db.commit()
+        db.refresh(sec)
+    return sec
+
+
+def _check_lockout(sec: UserSecurity):
+    if sec.twofa_locked_until and sec.twofa_locked_until > _now_utc():
+        raise HTTPException(429, "Too many attempts. Try again later.")
+
+
+def _register_failure(db: Session, sec: UserSecurity, admin: AdminUser):
+    sec.twofa_failed_attempts = (sec.twofa_failed_attempts or 0) + 1
+    if sec.twofa_failed_attempts >= _LOCKOUT_THRESHOLD:
+        sec.twofa_locked_until = _now_utc() + timedelta(minutes=_LOCKOUT_MINUTES)
+        db.add(AuditLog(actor_email=admin.email, action="2FA_LOCKED"))
+    else:
+        db.add(AuditLog(actor_email=admin.email, action="2FA_VERIFY_FAILED"))
+    db.commit()
+
+
+def _reset_failures(sec: UserSecurity):
+    sec.twofa_failed_attempts = 0
+    sec.twofa_locked_until = None
 
 
 @router.post("/change-password")
@@ -23,9 +70,11 @@ def change_password(
     admin: AdminUser = Depends(get_current_admin),
 ):
     if not verify_password(body.current_password, admin.password_hash):
+        db.add(AuditLog(actor_email=admin.email, action="PASSWORD_CHANGE_FAILED"))
+        db.commit()
         raise HTTPException(400, "Current password is incorrect")
     admin.password_hash = hash_password(body.new_password)
-    db.add(AuditLog(actor_email=admin.email, action="CHANGE_PASSWORD"))
+    db.add(AuditLog(actor_email=admin.email, action="PASSWORD_CHANGED"))
     db.commit()
     return {"ok": True, "message": "Password changed successfully"}
 
@@ -35,21 +84,20 @@ def setup_2fa(
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    sec = db.query(UserSecurity).filter(UserSecurity.user_id == admin.id).first()
-    if sec and sec.totp_enabled:
+    sec = _ensure_user_security(db, admin)
+    if sec.totp_enabled:
         raise HTTPException(400, "2FA is already enabled")
 
     secret = generate_totp_secret()
     uri = get_totp_uri(secret, admin.email)
 
-    if not sec:
-        sec = UserSecurity(user_id=admin.id)
-        db.add(sec)
     sec.totp_secret = secret
     sec.totp_enabled = False  # Not yet confirmed
+    _reset_failures(sec)
+    db.add(AuditLog(actor_email=admin.email, action="2FA_SETUP_STARTED"))
     db.commit()
 
-    return TwoFASetupResponse(secret=secret, otpauth_uri=uri)
+    return TwoFASetupResponse(secret=secret, otpauth_uri=uri, otpauth_url=uri, qr_svg="")
 
 
 @router.post("/2fa/confirm")
@@ -58,30 +106,75 @@ def confirm_2fa(
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    sec = db.query(UserSecurity).filter(UserSecurity.user_id == admin.id).first()
-    if not sec or not sec.totp_secret:
+    sec = _ensure_user_security(db, admin)
+    if not sec.totp_secret:
         raise HTTPException(400, "2FA setup not started. Call POST /security/2fa/setup first.")
 
+    _check_lockout(sec)
+
     if not verify_totp_code(sec.totp_secret, body.code):
+        _register_failure(db, sec, admin)
         raise HTTPException(400, "Invalid TOTP code. Please try again.")
 
+    # Generate one-time recovery codes (10)
+    codes: list[str] = []
+    for _ in range(10):
+        # human-friendly 10-char code: XXXX-XXXX style
+        part = secrets.token_hex(4)[:8].upper()
+        codes.append(part)
+
     sec.totp_enabled = True
-    db.add(AuditLog(actor_email=admin.email, action="ENABLE_2FA"))
+    sec.recovery_codes_hash = json.dumps([_hash_code(c) for c in codes])
+    _reset_failures(sec)
+
+    db.add(AuditLog(actor_email=admin.email, action="2FA_ENABLED"))
     db.commit()
-    return {"ok": True, "message": "2FA enabled successfully"}
+    return {"ok": True, "message": "2FA enabled successfully", "recovery_codes": codes}
 
 
 @router.post("/2fa/disable")
 def disable_2fa(
+    body: TwoFADisableRequest,
     db: Session = Depends(get_db),
     admin: AdminUser = Depends(get_current_admin),
 ):
-    sec = db.query(UserSecurity).filter(UserSecurity.user_id == admin.id).first()
-    if not sec or not sec.totp_enabled:
+    sec = _ensure_user_security(db, admin)
+    if not sec.totp_enabled:
         raise HTTPException(400, "2FA is not enabled")
+
+    _check_lockout(sec)
+
+    ok = False
+    raw = body.code_or_recovery.strip()
+
+    # 1. Try as TOTP code
+    if len(raw) >= 6 and verify_totp_code(sec.totp_secret or "", raw):
+        ok = True
+
+    # 2. Try as recovery code (one-time use)
+    if not ok and sec.recovery_codes_hash:
+        try:
+            hashes = json.loads(sec.recovery_codes_hash)
+        except Exception:
+            hashes = []
+        h = _hash_code(raw)
+        if h in hashes:
+            ok = True
+            hashes.remove(h)
+            sec.recovery_codes_hash = json.dumps(hashes)
+            db.add(AuditLog(actor_email=admin.email, action="RECOVERY_CODE_USED"))
+
+    if not ok:
+        _register_failure(db, sec, admin)
+        raise HTTPException(400, "Invalid code or recovery code.")
+
+    # Success – disable 2FA and clear secrets / lockouts
     sec.totp_enabled = False
     sec.totp_secret = None
-    db.add(AuditLog(actor_email=admin.email, action="DISABLE_2FA"))
+    sec.recovery_codes_hash = None
+    _reset_failures(sec)
+
+    db.add(AuditLog(actor_email=admin.email, action="2FA_DISABLED"))
     db.commit()
     return {"ok": True, "message": "2FA disabled"}
 
